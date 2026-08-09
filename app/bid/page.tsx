@@ -285,6 +285,21 @@ function BidView({
     };
   }, [teamId]);
 
+  // ── Auto-close lot logic ─────────────────────────────────────────────────
+  useEffect(() => {
+    if (!lot || lot.status !== "open" || !lot.endsAt) return;
+    const interval = setInterval(() => {
+      if (Date.now() > lot.endsAt) {
+        fetch('/api/lot/close', { 
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}'
+        }).catch(console.error);
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [lot]);
+
   // ── Bid handler ──────────────────────────────────────────────────────────
   const handleBid = useCallback(async () => {
     if (bidding) return;

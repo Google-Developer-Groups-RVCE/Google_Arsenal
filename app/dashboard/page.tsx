@@ -24,6 +24,85 @@ type AuctionState = {
   currentLotIndex: number;
 };
 
+type Team = {
+  id: string;
+  name: string;
+  members: string[];
+  code: string;
+  purse: number;
+  ownedTools?: {
+    toolId: string;
+    toolName: string;
+    tier: "S" | "A" | "B";
+    pricePaid: number;
+  }[];
+  tierCounts?: { S: number; A: number; B: number };
+};
+
+function ResultsView({ getTierColor }: { getTierColor: (tier: string) => string }) {
+  const [teams, setTeams] = useState<Team[]>([]);
+
+  useEffect(() => {
+    const teamsRef = ref(db, "teams");
+    const unsub = onValue(teamsRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        const teamsArray = Object.keys(data).map(key => ({
+          id: key,
+          ...data[key]
+        }));
+        teamsArray.sort((a, b) => a.name.localeCompare(b.name));
+        setTeams(teamsArray);
+      } else {
+        setTeams([]);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  return (
+    <div className="w-full h-full pt-4 pb-12 overflow-y-auto">
+      <h2 className="text-4xl font-heading font-bold text-center mb-12 uppercase tracking-widest text-primary shadow-sm">Auction Results</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        {teams.map(team => (
+          <div key={team.id} className="flex flex-col border border-primary/30 rounded bg-zinc-900/60 backdrop-blur-sm p-6 shadow-[0_0_20px_rgba(0,0,0,0.4)] relative overflow-hidden">
+            <div className="absolute inset-0 pointer-events-none opacity-20" 
+                 style={{ background: "radial-gradient(circle at center, rgba(124,59,237,0.4) 0%, transparent 70%)" }} />
+            
+            <h3 className="text-2xl font-heading font-bold text-white mb-1 z-10">{team.name}</h3>
+            <p className="text-sm text-zinc-400 mb-4 z-10 h-10 overflow-hidden line-clamp-2">{team.members?.join(", ")}</p>
+            
+            <div className="flex-1 z-10 flex flex-col gap-2">
+              <span className="text-xs text-zinc-500 uppercase font-heading tracking-widest">Arsenal</span>
+              <div className="flex flex-wrap gap-2">
+                {team.ownedTools && team.ownedTools.length > 0 ? (
+                  team.ownedTools.map((tool, idx) => (
+                    <div key={idx} className="flex items-center bg-zinc-800/80 border border-zinc-700 rounded overflow-hidden">
+                      <span className={`px-2 py-1 text-xs font-heading font-bold ${getTierColor(tool.tier)}`}>
+                        {tool.tier}
+                      </span>
+                      <span className="px-2 py-1 text-xs text-zinc-300 font-semibold truncate max-w-[120px]" title={tool.toolName}>
+                        {tool.toolName}
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <span className="text-zinc-600 text-sm italic">No tools acquired</span>
+                )}
+              </div>
+            </div>
+            
+            <div className="mt-4 pt-4 border-t border-zinc-800/80 flex justify-between items-center z-10">
+              <span className="text-xs text-zinc-500 uppercase font-heading tracking-widest">Remaining Purse</span>
+              <span className="text-lg font-heading font-bold text-zinc-300 tabular-nums">{team.purse}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function CountdownRing({ endsAt }: { endsAt: number }) {
   const [timeLeft, setTimeLeft] = useState(0);
   const totalDuration = 15000; // Fake assumption for visual scale
@@ -71,6 +150,8 @@ function CountdownRing({ endsAt }: { endsAt: number }) {
 
 export default function DashboardPage() {
   const [lot, setLot] = useState<CurrentLot | null>(null);
+  const [displayLot, setDisplayLot] = useState<CurrentLot | null>(null);
+  const [showSold, setShowSold] = useState(false);
   const [auctionState, setAuctionState] = useState<AuctionState | null>(null);
 
   useEffect(() => {
@@ -97,6 +178,40 @@ export default function DashboardPage() {
       unsubState();
     };
   }, []);
+
+  useEffect(() => {
+    if (lot && displayLot && lot.lotId !== displayLot.lotId) {
+      if (displayLot.currentBidderTeamId) {
+        setShowSold(true);
+        setTimeout(() => {
+          setShowSold(false);
+          setDisplayLot(lot);
+        }, 2000);
+      } else {
+        setDisplayLot(lot);
+      }
+    } else if (!displayLot && lot) {
+      setDisplayLot(lot);
+    } else if (!lot && displayLot) {
+      setDisplayLot(null);
+    } else if (lot && displayLot && lot.lotId === displayLot.lotId) {
+      setDisplayLot(lot);
+    }
+  }, [lot]);
+
+  useEffect(() => {
+    if (!lot || lot.status !== "open" || !lot.endsAt) return;
+    const interval = setInterval(() => {
+      if (Date.now() > lot.endsAt) {
+        fetch('/api/lot/close', { 
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}'
+        }).catch(console.error);
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [lot]);
 
   const getTierColor = (tier: string) => {
     if (tier === "S") return "bg-accent text-white";
@@ -158,8 +273,10 @@ export default function DashboardPage() {
         </button>
       </div>
 
-      <div className="flex-1 flex flex-col items-center justify-center p-8 relative z-10 w-full max-w-6xl mx-auto">
-        {!lot ? (
+      <div className={`flex-1 flex flex-col ${auctionState?.status === "finished" ? "items-stretch justify-start" : "items-center justify-center"} p-8 relative z-10 w-full max-w-7xl mx-auto`}>
+        {auctionState?.status === "finished" ? (
+          <ResultsView getTierColor={getTierColor} />
+        ) : !displayLot ? (
           <div className="flex flex-col items-center justify-center">
             <p className="text-2xl font-heading text-zinc-500 mb-2">Waiting for next lot...</p>
             <p className="text-zinc-600">Current Status: {auctionState?.status || "Loading..."}</p>
@@ -169,44 +286,51 @@ export default function DashboardPage() {
             {/* Main Center Card */}
             <div className="flex flex-col items-center mb-12">
               <div className="relative w-80 h-80 flex items-center justify-center mb-8">
+                {showSold && (
+                  <div className="absolute inset-0 z-50 flex items-center justify-center pointer-events-none">
+                    <div className="absolute inset-0 bg-background/50 rounded-full blur-sm" />
+                    <span className="text-8xl font-heading font-extrabold text-accent animate-ping absolute opacity-20">SOLD</span>
+                    <span className="text-8xl font-heading font-extrabold text-accent drop-shadow-[0_0_30px_var(--color-accent)] z-10 scale-110 transition-transform duration-500">SOLD</span>
+                  </div>
+                )}
                 {/* Logo Frame */}
                 <div className="w-64 h-64 rounded-full overflow-hidden border-4 border-background bg-zinc-900 shadow-2xl relative z-10 flex items-center justify-center"
                      style={{ boxShadow: "0 0 40px rgba(0, 229, 255, 0.2)" }}>
-                  {lot.logoUrl ? (
-                    <img src={lot.logoUrl} alt={lot.toolName} className="w-3/4 h-3/4 object-contain" />
+                  {displayLot.logoUrl ? (
+                    <img src={displayLot.logoUrl} alt={displayLot.toolName} className="w-3/4 h-3/4 object-contain" />
                   ) : (
-                    <span className="text-6xl font-heading text-zinc-600 font-bold">{lot.toolName.substring(0, 2).toUpperCase()}</span>
+                    <span className="text-6xl font-heading text-zinc-600 font-bold">{displayLot.toolName.substring(0, 2).toUpperCase()}</span>
                   )}
                 </div>
                 {/* Functional Countdown */}
-                <CountdownRing endsAt={lot.endsAt} />
+                <CountdownRing endsAt={displayLot.endsAt} />
               </div>
 
               <div className="flex items-center gap-4 mb-8">
                 <h1 className="text-6xl font-heading font-semibold tracking-tight uppercase shadow-sm">
-                  {lot.toolName}
+                  {displayLot.toolName}
                 </h1>
-                <span className={`px-4 py-1.5 rounded-full text-xl font-heading font-bold ${getTierColor(lot.tier)}`}>
-                  {lot.tier} TIER
+                <span className={`px-4 py-1.5 rounded-full text-xl font-heading font-bold ${getTierColor(displayLot.tier)}`}>
+                  {displayLot.tier} TIER
                 </span>
               </div>
 
               {/* Stats Row */}
               <div className="flex border border-primary/40 rounded bg-background/60 backdrop-blur-sm overflow-hidden shadow-lg">
                 <div className="flex flex-col items-center justify-center px-8 py-4 border-r border-primary/40 min-w-[160px]">
-                  <span className="text-sm text-zinc-400 uppercase font-heading tracking-widest mb-1">Base Price</span>
-                  <span className="text-3xl font-heading text-primary font-semibold tabular-nums">{lot.startingPrice}</span>
+                  <span className="text-base text-zinc-300 font-bold uppercase font-heading tracking-widest mb-1">Base Price</span>
+                  <span className="text-3xl font-heading text-primary font-semibold tabular-nums">{displayLot.startingPrice}</span>
                 </div>
                 <div className="flex flex-col items-center justify-center px-8 py-4 border-r border-primary/40 min-w-[160px]">
-                  <span className="text-sm text-zinc-400 uppercase font-heading tracking-widest mb-1">Tier</span>
-                  <span className="text-3xl font-heading font-semibold">{lot.tier}</span>
+                  <span className="text-base text-zinc-300 font-bold uppercase font-heading tracking-widest mb-1">Tier</span>
+                  <span className="text-3xl font-heading font-semibold">{displayLot.tier}</span>
                 </div>
                 <div className="flex flex-col items-center justify-center px-8 py-4 border-r border-primary/40 min-w-[160px]">
-                  <span className="text-sm text-zinc-400 uppercase font-heading tracking-widest mb-1">Copies</span>
+                  <span className="text-base text-zinc-300 font-bold uppercase font-heading tracking-widest mb-1">Copies</span>
                   <span className="text-3xl font-heading font-semibold text-zinc-300">--</span>
                 </div>
                 <div className="flex flex-col items-center justify-center px-8 py-4 min-w-[160px]">
-                  <span className="text-sm text-zinc-400 uppercase font-heading tracking-widest mb-1">Category</span>
+                  <span className="text-base text-zinc-300 font-bold uppercase font-heading tracking-widest mb-1">Category</span>
                   <span className="text-xl font-heading font-semibold text-zinc-300 mt-1">Software</span>
                 </div>
               </div>
@@ -215,27 +339,26 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Current Bid Bottom Bar */}
-      {lot && (
+      {displayLot && (
         <div className="h-32 border-t border-primary/30 bg-zinc-900/80 backdrop-blur-md relative z-10 flex items-center justify-between px-16 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
           <div className="flex flex-col">
-            <span className="text-primary font-heading uppercase tracking-[0.2em] text-sm mb-1 font-semibold">Current Bid</span>
+            <span className="text-primary font-heading uppercase tracking-[0.2em] text-lg mb-2 font-semibold">Current Bid</span>
             <div className="flex items-baseline gap-6">
-              <span className="text-6xl font-heading font-bold tabular-nums text-white">
-                {lot.currentBid || lot.startingPrice}
+              <span className="text-7xl font-heading font-bold tabular-nums text-white">
+                {displayLot.currentBid || displayLot.startingPrice}
               </span>
               <span className="text-2xl text-zinc-400 font-body uppercase tracking-wide">Purse Units</span>
             </div>
           </div>
 
           <div className="flex flex-col items-end">
-            <span className="text-zinc-500 font-heading uppercase tracking-[0.2em] text-sm mb-1 font-semibold">Leading Team</span>
-            {lot.currentBidderTeamName ? (
-              <span className="text-5xl font-heading font-bold text-white text-right">
-                {lot.currentBidderTeamName}
+            <span className="text-zinc-500 font-heading uppercase tracking-[0.2em] text-lg mb-2 font-semibold">Leading Team</span>
+            {displayLot.currentBidderTeamName ? (
+              <span className="text-6xl font-heading font-bold text-white text-right">
+                {displayLot.currentBidderTeamName}
               </span>
             ) : (
-              <span className="text-4xl font-heading font-bold text-zinc-600 italic">No Bids Yet</span>
+              <span className="text-5xl font-heading font-bold text-zinc-600 italic">No Bids Yet</span>
             )}
           </div>
         </div>

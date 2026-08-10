@@ -25,24 +25,29 @@ export async function POST(req: Request) {
 
     const teamsRef = adminDb.ref("teams");
     
-    // In a high-concurrency production setting, we'd use transactions.
-    // For this event's scale, fetching once to find unique codes is perfectly fine.
-    const snapshot = await teamsRef.once("value");
-    const existingTeams = snapshot.val() || {};
-    
-    const existingCodes = new Set<string>();
-    Object.values(existingTeams).forEach((team: any) => {
-      if (team.code) existingCodes.add(team.code);
-    });
-
-    let code = generateCode();
+    let code = "";
+    let codeClaimed = false;
     let attempts = 0;
-    while (existingCodes.has(code) && attempts < 100) {
+    
+    while (!codeClaimed && attempts < 100) {
       code = generateCode();
+      const codeRef = adminDb.ref(`teamCodes/${code}`);
+      
+      const tx = await codeRef.transaction((currentData) => {
+        if (currentData === null) {
+          return true; // Claim this code
+        }
+        return undefined; // Code already exists, abort transaction
+      });
+      
+      if (tx.committed) {
+        codeClaimed = true;
+      }
+      
       attempts++;
     }
 
-    if (attempts >= 100) {
+    if (!codeClaimed) {
       return NextResponse.json({ error: "Failed to generate unique team code" }, { status: 500 });
     }
 

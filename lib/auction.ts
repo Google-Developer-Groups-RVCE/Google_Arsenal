@@ -31,10 +31,14 @@ export const TOOLS: ToolDefinition[] = [
   { id: "google-colab", name: "Google Colab", tier: "A", basePrice: 30, copies: 6, logoUrl: "" },
   { id: "android-studio", name: "Android Studio + Jetpack Compose", tier: "A", basePrice: 30, copies: 6, logoUrl: "" },
   { id: "apps-script", name: "Apps Script + Workspace APIs", tier: "A", basePrice: 30, copies: 6, logoUrl: "" },
+  { id: "nano-banana", name: "Nano Banana (Imagen)", tier: "A", basePrice: 30, copies: 6, logoUrl: "" },
 
   { id: "maps-platform", name: "Maps Platform API", tier: "B", basePrice: 12, copies: "Unlimited", logoUrl: "" },
   { id: "cloud-vision", name: "Cloud Vision / Speech-to-Text", tier: "B", basePrice: 12, copies: "Unlimited", logoUrl: "" },
   { id: "looker-studio", name: "Looker Studio / Sheets API", tier: "B", basePrice: 12, copies: "Unlimited", logoUrl: "" },
   { id: "translate-api", name: "Translate API", tier: "B", basePrice: 12, copies: "Unlimited", logoUrl: "" },
   { id: "forms-api", name: "Forms API + Fonts/Material assets", tier: "B", basePrice: 12, copies: "Unlimited", logoUrl: "" },
+  { id: "notebooklm", name: "NotebookLM", tier: "B", basePrice: 12, copies: "Unlimited", logoUrl: "" },
+  { id: "google-stitch", name: "Google Stitch", tier: "B", basePrice: 12, copies: "Unlimited", logoUrl: "" },
+  { id: "google-flow", name: "Google Flow", tier: "B", basePrice: 12, copies: "Unlimited", logoUrl: "" },
 ];

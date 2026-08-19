@@ -13,6 +13,7 @@ export async function POST() {
     await adminDb.ref().update({
       currentLot: null,
       lotQueue: null,
+      bidHistory: null, // Clear all bids — lot IDs are reused on restart, stale bids would pollute new leaderboards
       auctionState: {
         status: "not_started",
         currentLotIndex: 0,

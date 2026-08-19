@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { ref, onValue } from "firebase/database";
 import { db, auth } from "@/lib/firebase";
 import { signOut } from "firebase/auth";
+import { LOT_DURATION_MS } from "@/lib/auction";
 
 /* ─── Types ─── */
 type CurrentLot = {
@@ -16,6 +17,10 @@ type CurrentLot = {
   currentBid: number;
   currentBidderTeamId: string | null;
   currentBidderTeamName: string | null;
+  leaderboard: { teamId: string; teamName: string; amount: number }[] | null;
+  maxWinners: number;
+  winners?: { teamId: string; teamName: string; amount: number }[];
+  clearingPrice?: number;
   endsAt: number;
   status: "open" | "closed";
 };
@@ -31,7 +36,8 @@ type LotQueueItem = {
   toolName: string;
   tier: "S" | "A" | "B";
   logoUrl: string;
-  basePrice: number;
+  startingPrice: number; // matches what admin/start writes (not basePrice)
+  maxWinners: number;
 };
 
 type Team = {
@@ -152,7 +158,7 @@ function ResultsView() {
 ══════════════════════════════════════ */
 function CountdownRing({ endsAt, isPaused }: { endsAt: number; isPaused: boolean }) {
   const [timeLeft, setTimeLeft] = useState(0);
-  const totalDuration = 15_000;
+  const totalDuration = LOT_DURATION_MS; // sourced from lib/auction.ts, not hardcoded
 
   useEffect(() => {
     if (!endsAt) return;
@@ -213,10 +219,12 @@ function CountdownRing({ endsAt, isPaused }: { endsAt: number; isPaused: boolean
 ══════════════════════════════════════ */
 function OperatorBar({
   auctionState,
+  totalLots,
   onAction,
   busy,
 }: {
   auctionState: AuctionState | null;
+  totalLots: number;
   onAction: (label: string, fn: () => Promise<void>) => void;
   busy: string | null;
 }) {
@@ -252,7 +260,7 @@ function OperatorBar({
         </span>
         {auctionState && status !== "not_started" && status !== "finished" && (
           <span className="text-xs text-zinc-600 font-body">
-            · Lot #{(auctionState.currentLotIndex ?? 0) + 1}
+            · Lot #{(auctionState.currentLotIndex ?? 0) + 1}{totalLots > 0 ? ` of ${totalLots}` : ""}
           </span>
         )}
       </div>
@@ -284,7 +292,7 @@ function OperatorBar({
           <button
             disabled={!!busy}
             onClick={() => {
-              if (!confirm("Reset the entire auction state? Teams keep their purses.")) return;
+              if (!confirm("Reset auction flow? This clears all lots, bids and auction state. Team registrations and purses are preserved.")) return;
               onAction("reset", () => callApi("/api/admin/reset"));
             }}
             className="px-4 py-1.5 rounded bg-zinc-800/60 hover:bg-red-900/40 border border-zinc-700 hover:border-red-800 text-sm font-heading text-zinc-500 hover:text-red-400 transition-all disabled:opacity-50 disabled:cursor-wait"
@@ -359,15 +367,21 @@ function PausedOverlay() {
 /* ══════════════════════════════════════
    SOLD OVERLAY
 ══════════════════════════════════════ */
-function SoldOverlay({ teamName }: { teamName: string | null }) {
+function SoldOverlay({ lot }: { lot: CurrentLot }) {
+  const winners = lot.winners ?? (lot.currentBidderTeamName ? [{ teamName: lot.currentBidderTeamName, amount: lot.clearingPrice ?? lot.currentBid }] : []);
+  const clearingPrice = lot.clearingPrice ?? lot.currentBid;
+
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center pointer-events-none">
       <div className="absolute inset-0 bg-background/60 rounded-full blur-md" />
       <span className="text-8xl font-heading font-extrabold text-accent animate-ping absolute opacity-20">SOLD</span>
-      <div className="z-10 flex flex-col items-center">
+      <div className="z-10 flex flex-col items-center gap-2">
         <span className="text-7xl font-heading font-extrabold text-accent drop-shadow-[0_0_40px_var(--color-accent)]">SOLD</span>
-        {teamName && (
-          <span className="text-xl font-heading text-white mt-2 tracking-widest">to {teamName}</span>
+        <span className="text-xl font-heading text-white tracking-widest">
+          {winners.length > 1 ? `${winners.length} teams` : winners[0]?.teamName ?? ""}
+        </span>
+        {clearingPrice > 0 && (
+          <span className="text-base font-heading text-primary/80">@ {clearingPrice} DC each</span>
         )}
       </div>
     </div>
@@ -381,6 +395,7 @@ export default function DashboardPage() {
   const [lot, setLot] = useState<CurrentLot | null>(null);
   const [displayLot, setDisplayLot] = useState<CurrentLot | null>(null);
   const [nextLot, setNextLot] = useState<LotQueueItem | null>(null);
+  const [totalLots, setTotalLots] = useState(0);
   const [showSold, setShowSold] = useState(false);
   const [auctionState, setAuctionState] = useState<AuctionState | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -411,6 +426,16 @@ export default function DashboardPage() {
       setLot(snap.exists() ? snap.val() : null);
     });
 
+    // Subscribe to lotQueue to know total count (for "Lot N of M" display)
+    const unsubQueue = onValue(ref(db, "lotQueue"), (snap) => {
+      if (snap.exists()) {
+        const q = snap.val();
+        setTotalLots(Array.isArray(q) ? q.length : Object.keys(q).length);
+      } else {
+        setTotalLots(0);
+      }
+    });
+
     const unsubState = onValue(ref(db, "auctionState"), (snap) => {
       if (snap.exists()) {
         const state = snap.val() as AuctionState;
@@ -431,13 +456,15 @@ export default function DashboardPage() {
       }
     });
 
-    return () => { unsubLot(); unsubState(); };
+    return () => { unsubLot(); unsubQueue(); unsubState(); };
   }, []);
 
   /* ── SOLD animation on lot change ── */
   useEffect(() => {
     if (lot && displayLot && lot.lotId !== displayLot.lotId) {
-      if (displayLot.currentBidderTeamId) {
+      // Show SOLD if there were any bids on the closing lot (leaderboard had entries)
+      const hadBids = Array.isArray(displayLot.leaderboard) && displayLot.leaderboard.length > 0;
+      if (hadBids) {
         setShowSold(true);
         setTimeout(() => { setShowSold(false); setDisplayLot(lot); }, 2500);
       } else {
@@ -474,7 +501,7 @@ export default function DashboardPage() {
       />
 
       {/* ── Operator Bar (sticky top) ── */}
-      <OperatorBar auctionState={auctionState} onAction={handleAction} busy={busy} />
+      <OperatorBar auctionState={auctionState} totalLots={totalLots} onAction={handleAction} busy={busy} />
 
       {/* ── Toast notification ── */}
       {toast && (
@@ -512,7 +539,7 @@ export default function DashboardPage() {
             <div className="flex flex-col items-center mb-10">
               {/* Ring + logo */}
               <div className="relative w-80 h-80 flex items-center justify-center mb-8">
-                {showSold && <SoldOverlay teamName={displayLot.currentBidderTeamName} />}
+                {showSold && <SoldOverlay lot={displayLot} />}
 
                 {/* Logo frame */}
                 <div
@@ -566,31 +593,78 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* ── Current Bid bar ── */}
-      {displayLot && auctionState?.status !== "finished" && (
-        <div className="h-28 border-t border-primary/25 bg-background/95 backdrop-blur-xl relative z-10 flex items-center justify-between px-16 shadow-[0_-10px_40px_rgba(0,0,0,0.7)]">
-          <div className="flex flex-col">
-            <span className="text-[10px] font-heading uppercase tracking-[0.25em] text-primary/70 mb-1">Current Bid</span>
-            <div className="flex items-baseline gap-3">
-              <span className="text-6xl font-heading font-bold tabular-nums text-white drop-shadow-[0_0_20px_rgba(0,229,255,0.3)]">
-                {displayLot.currentBid || displayLot.startingPrice}
-              </span>
-              <span className="text-lg text-zinc-600 font-heading uppercase tracking-widest">DC</span>
-            </div>
-          </div>
+      {/* ── Current Bid / Leaderboard bar ── */}
+      {displayLot && auctionState?.status !== "finished" && (() => {
+        const leaderboard = Array.isArray(displayLot.leaderboard) ? displayLot.leaderboard : [];
+        const maxWinners = displayLot.maxWinners ?? (displayLot.tier === "S" ? 4 : 6);
+        const clearingPrice =
+          leaderboard.length >= maxWinners
+            ? leaderboard[maxWinners - 1].amount
+            : leaderboard.length > 0
+            ? leaderboard[leaderboard.length - 1].amount
+            : displayLot.startingPrice;
+        const spotsFilled = Math.min(leaderboard.length, maxWinners);
 
-          <div className="flex flex-col items-end">
-            <span className="text-[10px] font-heading uppercase tracking-[0.25em] text-zinc-600 mb-1">Leading Team</span>
-            {displayLot.currentBidderTeamName ? (
-              <span className="text-5xl font-heading font-bold text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.15)]">
-                {displayLot.currentBidderTeamName}
-              </span>
+        return (
+          <div className="border-t border-primary/25 bg-background/95 backdrop-blur-xl relative z-10 px-8 py-4 shadow-[0_-10px_40px_rgba(0,0,0,0.7)]">
+            {/* Stats row */}
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex flex-col">
+                <span className="text-[10px] font-heading uppercase tracking-[0.25em] text-primary/70 mb-0.5">Clearing Price</span>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-4xl font-heading font-bold tabular-nums text-white drop-shadow-[0_0_20px_rgba(0,229,255,0.3)]">
+                    {clearingPrice}
+                  </span>
+                  <span className="text-base text-zinc-600 font-heading uppercase tracking-widest">DC · all winners pay this</span>
+                </div>
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] font-heading uppercase tracking-[0.25em] text-zinc-600 mb-0.5 block">Spots Filled</span>
+                <span className="text-3xl font-heading font-bold text-white">{spotsFilled}<span className="text-zinc-600 text-xl">/{maxWinners}</span></span>
+              </div>
+            </div>
+
+            {/* Leaderboard table */}
+            {leaderboard.length > 0 ? (
+              <div className="flex gap-2 flex-wrap">
+                {leaderboard.map((entry, idx) => {
+                  const isWinning = idx < maxWinners;
+                  return (
+                    <div
+                      key={entry.teamId}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm font-heading transition-all ${
+                        isWinning
+                          ? "border-primary/50 bg-primary/10 text-primary"
+                          : "border-zinc-700/50 bg-zinc-800/30 text-zinc-500"
+                      }`}
+                    >
+                      <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold ${
+                        isWinning ? "bg-primary/20 text-primary" : "bg-zinc-700 text-zinc-500"
+                      }`}>
+                        {idx + 1}
+                      </span>
+                      <span className="font-semibold">{entry.teamName}</span>
+                      <span className="tabular-nums font-bold">{entry.amount} DC</span>
+                      {isWinning && (
+                        <span className="text-[9px] text-primary/60 uppercase tracking-wider">WIN</span>
+                      )}
+                    </div>
+                  );
+                })}
+                {/* Empty slots */}
+                {Array.from({ length: Math.max(0, maxWinners - leaderboard.length) }).map((_, i) => (
+                  <div key={`empty-${i}`} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-zinc-800/40 bg-zinc-900/20 text-zinc-700 text-sm font-heading">
+                    <span className="w-4 h-4 rounded-full bg-zinc-800 flex items-center justify-center text-[9px]">{leaderboard.length + i + 1}</span>
+                    <span className="italic text-xs">open</span>
+                  </div>
+                ))}
+              </div>
             ) : (
-              <span className="text-4xl font-heading font-bold text-zinc-700/70 italic">No Bids Yet</span>
+              <p className="text-zinc-600 font-heading text-sm italic">No bids yet</p>
             )}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── Next Up strip ── */}
       {nextLot && (auctionState?.status === "live" || auctionState?.status === "paused") && (
@@ -605,7 +679,7 @@ export default function DashboardPage() {
           <div className="flex flex-col">
             <span className="text-[9px] text-secondary font-heading uppercase tracking-widest font-bold">Next Up</span>
             <span className="text-sm text-zinc-300 font-heading font-semibold">{nextLot.toolName}</span>
-            <span className={`text-[10px] font-heading font-bold ${nextLot.tier === "S" ? "text-[#ff29d4]" : "text-[#7c3bed]"}`}>{nextLot.tier}-TIER · {nextLot.basePrice} DC</span>
+            <span className={`text-[10px] font-heading font-bold ${nextLot.tier === "S" ? "text-[#ff29d4]" : "text-[#7c3bed]"}`}>{nextLot.tier}-TIER · {nextLot.startingPrice} DC</span>
           </div>
         </div>
       )}

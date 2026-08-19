@@ -54,25 +54,25 @@ const TOOLS = {
 
 const RULES = [
   { num: 1,  title: "Starting Budget",    body: "Every team gets 120 DevCoins to spend across all tiers." },
-  { num: 2,  title: "Tier Caps",          body: "Max 1 S-tier tool per team · Max 2 A-tier tools per team · No cap on B-tier." },
+  { num: 2,  title: "Tier Caps",          body: "Max 1 S-tier tool per team · Max 2 A-tier tools per team · Unlimited B-tier." },
   { num: 3,  title: "Auction Order",      body: "S-tier → A-tier → B-tier. Problem statement revealed only after all bidding closes — bid blind." },
-  { num: 4,  title: "Live Bidding",       body: "Every item has a 10-second countdown. Any new higher bid resets the timer to 10s." },
-  { num: 5,  title: "Multi-Copy Pricing", body: "Top N bidders each win one copy — all winners pay the lowest winning bid." },
-  { num: 6,  title: "B-Tier Grab",        body: "Fixed price, no bidding — first team to click gets it." },
+  { num: 4,  title: "Live Bidding",       body: "Each tool has a 15-second countdown. Any new bid resets the timer by 5s." },
+  { num: 5,  title: "Leaderboard Pricing",body: "Top 4 teams win an S-tier tool (all pay the 4th-highest bid). Top 6 teams win an A-tier tool (all pay the 6th-highest bid)." },
+  { num: 6,  title: "B-Tier Buy",         body: "Fixed price, no bidding — click BUY at any time to grab a B-tier tool at base price (12 DC). Unlimited copies." },
   { num: 7,  title: "Mandatory Use",      body: "Every tool your team wins must be used in your final pitch." },
-  { num: 8,  title: "No Overspending",    body: "A bid cannot exceed your remaining DevCoins." },
+  { num: 8,  title: "No Overspending",    body: "Your bid cannot exceed your remaining DevCoins. Purse is only deducted when the lot closes." },
   { num: 9,  title: "Scoring",            body: "Innovation · Tool Utilization · Integration · Feasibility & Pitch — 10 pts each." },
   { num: 10, title: "Underdog Bonus",     body: "Teams with only A/B-tier tools (no S-tier) get a +10–15% score bonus." },
 ];
 
 const TIER_META = {
-  S: { label: "S-TIER", coins: 60, copies: 4,   cap: "Max 1/team",
+  S: { label: "S-TIER", coins: 60, copies: 4,   cap: "Top 4 win · Max 1/team",
     gradFrom: "#f59e0b", gradTo: "#fbbf24", border: "rgba(251,191,36,0.35)", glow: "rgba(251,191,36,0.15)",
     badgeBg: "rgba(251,191,36,0.1)", badgeText: "#fde68a", badgeBorder: "rgba(251,191,36,0.3)", dot: "#fbbf24" },
-  A: { label: "A-TIER", coins: 30, copies: 6,   cap: "Max 2/team",
+  A: { label: "A-TIER", coins: 30, copies: 6,   cap: "Top 6 win · Max 2/team",
     gradFrom: "#7c3bed", gradTo: "#a855f7", border: "rgba(124,59,237,0.45)", glow: "rgba(124,59,237,0.2)",
     badgeBg: "rgba(124,59,237,0.1)", badgeText: "#c4b5fd", badgeBorder: "rgba(124,59,237,0.4)", dot: "#a855f7" },
-  B: { label: "B-TIER", coins: 12, copies: "∞", cap: "No cap",
+  B: { label: "B-TIER", coins: 12, copies: "∞", cap: "Buy anytime · No cap",
     gradFrom: "#00e5ff", gradTo: "#22d3ee", border: "rgba(0,229,255,0.25)", glow: "rgba(0,229,255,0.12)",
     badgeBg: "rgba(0,229,255,0.08)", badgeText: "#67e8f9", badgeBorder: "rgba(0,229,255,0.25)", dot: "#00e5ff" },
 };

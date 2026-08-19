@@ -2,6 +2,20 @@ import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { LOT_DURATION_MS } from "@/lib/auction";
 
+/**
+ * POST /api/lot/close
+ * Body: { force?: boolean }  (force = skip timer check)
+ *
+ * Leaderboard / clearing-price resolution:
+ *  1. Close the lot atomically (idempotent).
+ *  2. Read all bids from /bidHistory/{lotId} (one entry per team).
+ *  3. Sort bids descending; take top maxWinners as winners.
+ *  4. Clearing price = amount of the maxWinners-th bid.
+ *     (If fewer bids than maxWinners, clearing price = lowest bid.)
+ *  5. For every winner: deduct clearingPrice from purse, add tool to ownedTools,
+ *     increment tierCounts — all in a single multi-path update.
+ *  6. Advance to next lot, or set auction finished.
+ */
 export async function POST(req: Request) {
   try {
     let force = false;
@@ -20,10 +34,10 @@ export async function POST(req: Request) {
         txStatus = "no-data";
         return null; // retry
       }
-      
+
       if (currentData.status === "closed") {
         txStatus = "already-closed";
-        return undefined; // abort
+        return undefined; // abort — idempotent
       }
 
       if (!force && Date.now() <= currentData.endsAt) {
@@ -33,7 +47,7 @@ export async function POST(req: Request) {
 
       return {
         ...currentData,
-        status: "closed"
+        status: "closed",
       };
     });
 
@@ -41,41 +55,64 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, message: txStatus });
     }
 
-    // We are the one who closed it!
+    // We are the one who closed it — process the results.
     const closedLot = txResult.snapshot.val();
     const updates: Record<string, any> = {};
 
-    // 1. Process the winner if there is one
-    if (closedLot.currentBidderTeamId) {
-      const teamId = closedLot.currentBidderTeamId;
-      const teamSnap = await adminDb.ref(`teams/${teamId}`).get();
-      
-      if (teamSnap.exists()) {
-        const team = teamSnap.val();
-        
-        // Deduct purse
-        const newPurse = team.purse - closedLot.currentBid;
-        updates[`teams/${teamId}/purse`] = newPurse;
+    // ── 1. Resolve winners from bidHistory ───────────────────────────────
+    const allBidsSnap = await adminDb.ref(`bidHistory/${closedLot.lotId}`).get();
+    const allBids: { teamId: string; teamName: string; amount: number }[] = [];
 
-        // Add to ownedTools
-        const ownedTools = team.ownedTools || [];
-        ownedTools.push({
-          toolId: closedLot.toolId,
-          toolName: closedLot.toolName,
-          tier: closedLot.tier,
-          pricePaid: closedLot.currentBid,
-          acquiredAt: Date.now()
-        });
-        updates[`teams/${teamId}/ownedTools`] = ownedTools;
-
-        // Update tierCounts
-        const tierCounts = team.tierCounts || { S: 0, A: 0, B: 0 };
-        tierCounts[closedLot.tier] = (tierCounts[closedLot.tier] || 0) + 1;
-        updates[`teams/${teamId}/tierCounts`] = tierCounts;
-      }
+    if (allBidsSnap.exists()) {
+      allBidsSnap.forEach((child) => {
+        const b = child.val();
+        if (b && b.teamId && typeof b.amount === "number") {
+          allBids.push({ teamId: b.teamId, teamName: b.teamName, amount: b.amount });
+        }
+      });
     }
 
-    // 2. Open the next lot
+    // Sort descending by bid amount
+    allBids.sort((a, b) => b.amount - a.amount);
+
+    const maxWinners: number = closedLot.maxWinners ?? (closedLot.tier === "S" ? 4 : 6);
+    const winners = allBids.slice(0, maxWinners);
+
+    // Clearing price = amount of the last winner (Nth bid)
+    const clearingPrice = winners.length > 0 ? winners[winners.length - 1].amount : 0;
+
+    // ── 2. Award each winner ─────────────────────────────────────────────
+    for (const winner of winners) {
+      const teamSnap = await adminDb.ref(`teams/${winner.teamId}`).get();
+      if (!teamSnap.exists()) continue;
+
+      const teamData = teamSnap.val();
+      const newPurse = Math.max(0, (teamData.purse ?? 0) - clearingPrice);
+
+      updates[`teams/${winner.teamId}/purse`] = newPurse;
+
+      // Add to ownedTools (array)
+      const ownedTools = Array.isArray(teamData.ownedTools) ? [...teamData.ownedTools] : [];
+      ownedTools.push({
+        toolId: closedLot.toolId,
+        toolName: closedLot.toolName,
+        tier: closedLot.tier,
+        pricePaid: clearingPrice,
+        acquiredAt: Date.now(),
+      });
+      updates[`teams/${winner.teamId}/ownedTools`] = ownedTools;
+
+      // Increment tierCounts
+      const tierCounts = teamData.tierCounts ?? { S: 0, A: 0, B: 0 };
+      tierCounts[closedLot.tier] = (tierCounts[closedLot.tier] ?? 0) + 1;
+      updates[`teams/${winner.teamId}/tierCounts`] = tierCounts;
+    }
+
+    // Store winners + clearing price on the closed lot for post-game reference
+    updates[`currentLot/winners`] = winners;
+    updates[`currentLot/clearingPrice`] = clearingPrice;
+
+    // ── 3. Advance to next lot ───────────────────────────────────────────
     const stateSnap = await adminDb.ref("auctionState").get();
     const queueSnap = await adminDb.ref("lotQueue").get();
 
@@ -86,7 +123,6 @@ export async function POST(req: Request) {
       const nextIndex = state.currentLotIndex + 1;
 
       if (nextIndex < queue.length) {
-        // Open next lot
         const nextLot = queue[nextIndex];
         updates["auctionState/currentLotIndex"] = nextIndex;
         updates["currentLot"] = {
@@ -94,24 +130,27 @@ export async function POST(req: Request) {
           currentBid: nextLot.startingPrice,
           currentBidderTeamId: null,
           currentBidderTeamName: null,
+          leaderboard: [],
           endsAt: Date.now() + LOT_DURATION_MS,
-          status: "open"
+          status: "open",
         };
       } else {
-        // Auction finished
         updates["auctionState/status"] = "finished";
-        // Optionally remove currentLot or keep it as closed
-        updates["currentLot"] = null; 
+        updates["currentLot"] = null;
       }
     }
 
-    // Commit all updates
+    // Commit all updates atomically
     if (Object.keys(updates).length > 0) {
       await adminDb.ref().update(updates);
     }
 
-    return NextResponse.json({ success: true, processedLotId: closedLot.lotId });
-
+    return NextResponse.json({
+      success: true,
+      processedLotId: closedLot.lotId,
+      winners,
+      clearingPrice,
+    });
   } catch (err) {
     console.error("Error closing lot:", err);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });

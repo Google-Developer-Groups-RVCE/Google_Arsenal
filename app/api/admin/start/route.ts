@@ -13,23 +13,24 @@ function shuffleArray<T>(array: T[]): T[] {
 
 export async function POST(req: Request) {
   try {
-    // 1. Build flattened queue of S and A tier tools
+    // 1. Build lot queue — one lot per S/A tool (not one per copy).
+    //    maxWinners = 4 for S-tier, 6 for A-tier.
+    //    All copies are awarded at close via clearing-price logic.
     let lotQueue: any[] = [];
     let lotIdCounter = 1;
 
     for (const tool of TOOLS) {
       if (tool.tier === "S" || tool.tier === "A") {
-        const copies = typeof tool.copies === "number" ? tool.copies : 1;
-        for (let i = 0; i < copies; i++) {
-          lotQueue.push({
-            lotId: `lot-${lotIdCounter++}`,
-            toolId: tool.id,
-            toolName: tool.name,
-            tier: tool.tier,
-            logoUrl: tool.logoUrl || "",
-            startingPrice: tool.basePrice,
-          });
-        }
+        const maxWinners = tool.tier === "S" ? 4 : 6;
+        lotQueue.push({
+          lotId: `lot-${lotIdCounter++}`,
+          toolId: tool.id,
+          toolName: tool.name,
+          tier: tool.tier,
+          logoUrl: tool.logoUrl || "",
+          startingPrice: tool.basePrice,
+          maxWinners,
+        });
       }
     }
 
@@ -39,7 +40,7 @@ export async function POST(req: Request) {
     // 3. Take the first lot
     const firstLot = lotQueue[0];
 
-    // 4. Update Firebase atomically using multiple set operations or an update block
+    // 4. Update Firebase atomically
     const updates: Record<string, any> = {
       "lotQueue": lotQueue,
       "auctionState": {
@@ -51,6 +52,8 @@ export async function POST(req: Request) {
         currentBid: firstLot.startingPrice,
         currentBidderTeamId: null,
         currentBidderTeamName: null,
+        // leaderboard: top bids shown live (array of {teamId, teamName, amount})
+        leaderboard: [],
         endsAt: Date.now() + LOT_DURATION_MS,
         status: "open",
       }

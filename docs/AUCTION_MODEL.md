@@ -19,37 +19,65 @@
 | B | Translate API | 12 | Unlimited |
 | B | Forms API + Fonts/Material assets | 12 | Unlimited |
 
-S and A tiers go through the live bidding flow below. B tier is fixed-price, ungated, unlimited — a team can grab any number of B-tier tools at 12 coins each any time, no auction needed for those (implement as a simple "buy" write with only a purse check).
+## Auction Model
 
-## Constants (put these in `lib/auction.ts`, not hardcoded inline)
+### S & A Tier — Leaderboard / Clearing-Price Auction
+
+Each S or A tool runs as a **single lot** (not one lot per copy). All teams bid simultaneously during the lot window.
+
+**Closing resolution:**
+- S-tier: top 4 bidders all win one copy each. Every winner pays the **4th-highest bid** (the clearing price).
+- A-tier: top 6 bidders all win one copy each. Every winner pays the **6th-highest bid**.
+- If fewer than N teams bid, all bidders win at the lowest bid placed.
+
+**Example (S-tier, 4 winners):**
+- Team A bids 80, Team B bids 75, Team C bids 70, Team D bids 65, Team E bids 60.
+- Top 4 winners: A, B, C, D. All four pay **65 DC** (the 4th bid).
+
+### B Tier — Fixed-Price, First-Come-First-Served
+
+B-tier is fixed-price, ungated, unlimited. Any team can buy any B-tier tool at its base price (12 DC) any time by clicking BUY — no auction, just a purse check.
+
+## Constants (in `lib/auction.ts`)
+
 - `STARTING_PURSE = 120`
-- `BID_INCREMENT = 5`
+- `BID_INCREMENT = 5` (each BID click raises your personal stake by 5)
 - `LOT_DURATION_MS = 15000`
 - `ANTI_SNIPE_EXTENSION_MS = 5000`
 - `BID_COOLDOWN_MS = 1000` (per team, prevents accidental double-taps)
-- `S_TIER_CAP = 1`
-- `A_TIER_CAP = 2`
+- `S_TIER_COPIES = 4` (winners per S-tier lot)
+- `A_TIER_COPIES = 6` (winners per A-tier lot)
+- `S_TIER_CAP = 1` (max S-tier tools a team can **own** — enforced at bid time)
+- `A_TIER_CAP = 2` (max A-tier tools a team can **own** — enforced at bid time)
 
 ## Lot lifecycle
-1. `/lotQueue` is built once, at auction start, as a flattened list — every individual copy of every S/A tool is its own entry (16 S-tier lots + 30 A-tier lots = 46 total). Order can be shuffled or fixed; doesn't affect logic.
-2. `/api/lot/close` with no active lot (or on operator "Start") pulls the next entry from `/lotQueue`, writes it to `/currentLot` with `startingPrice` as `currentBid`, `currentBidderTeamId: null`, and `endsAt = now + LOT_DURATION_MS`.
-3. Lot stays `open` until any client detects `Date.now() > endsAt` and calls `/api/lot/close`.
-4. `/api/lot/close` is idempotent: if `/currentLot/status` is already `"closed"` when the handler runs, do nothing and return success. Only the first caller actually transitions state — this is what makes "any client can trigger it" safe.
-5. On close: if there was a winning bidder, update their team's `purse`, `ownedTools`, and `tierCounts` in the same transaction (or immediately after, guarded by the lot's closed status so it only runs once). Push the result into `/auctionState.currentLotIndex + 1` and open the next lot, or set `auctionState.status = "finished"` if the queue is empty.
 
-## `/api/bid` guardrail sequence (run in this order, inside a Firebase transaction on `/currentLot`)
-Reject immediately, before touching the transaction, if:
-1. **Cooldown:** `now - team.lastBidAt < BID_COOLDOWN_MS` → reject as "too fast, wait a moment."
-2. **Already winning:** `team.id === currentLot.currentBidderTeamId` → reject as "you're already the highest bid."
-3. **Tier cap:** if `currentLot.tier === "S"` and `team.tierCounts.S >= S_TIER_CAP` → reject as "S-tier limit reached." Same pattern for A tier against `A_TIER_CAP`.
-4. **Purse:** if `team.purse < currentLot.currentBid + BID_INCREMENT` → reject as "not enough DevCoins."
+1. `/lotQueue` is built at auction start — **one entry per S/A tool** (not per copy). Each entry has `maxWinners` (4 for S, 6 for A). Queue is shuffled.
+2. On "Start" or after previous lot closes, the next entry from `/lotQueue` is written to `/currentLot` with `status: "open"`, `leaderboard: []`, and `endsAt = now + LOT_DURATION_MS`.
+3. Teams bid during the window. Each team's personal bid is stored at `/bidHistory/{lotId}/{teamId}`. After each bid, `/currentLot.leaderboard` is updated with all bids sorted descending.
+4. Lot closes when any client detects `Date.now() > endsAt` and calls `/api/lot/close`. The handler is idempotent — only the first caller transitions state.
+5. On close: read all bids from `/bidHistory/{lotId}`, sort descending, take top `maxWinners` as winners. Clearing price = amount of the last winner. Deduct clearing price from each winner's purse and add the tool to their `ownedTools` in one multi-path update.
+6. Open next lot, or set `auctionState.status = "finished"` if queue is empty.
 
-Then, inside the transaction:
-5. Re-read `/currentLot` fresh (transactions retry automatically on conflict — this is what makes concurrent taps resolve correctly instead of corrupting state).
-6. If `status !== "open"` → reject as "lot already closed."
-7. Compute `newBid = currentLot.currentBid + BID_INCREMENT`. Set `currentBid = newBid`, `currentBidderTeamId = team.id`, `currentBidderTeamName = team.name`.
-8. Extend `endsAt = max(currentLot.endsAt, now) + ANTI_SNIPE_EXTENSION_MS`.
-9. Commit. On success, update `team.lastBidAt = now` and append an entry to `/bidHistory/{lotId}`.
+## `/api/bid` guardrail sequence
 
-## Why the order matters
-Checks 1-4 are cheap reads that reject the obviously-invalid cases before paying for a transaction. Checks 5-8 happen inside the transaction because they depend on state that can change between another team's concurrent bid landing — re-reading fresh data inside the transaction (step 5) is what prevents two teams from both "winning" the same lot at once.
+Reject immediately (cheap reads) if:
+1. **Cooldown:** `now - team.lastBidAt < BID_COOLDOWN_MS` → "too fast, wait a moment."
+2. **Lot not open:** `currentLot.status !== "open"` → "lot already closed."
+3. **Lot expired:** `Date.now() > currentLot.endsAt` → "lot time has expired."
+4. **Tier cap (ownership):** if `currentLot.tier === "S"` and `team.tierCounts.S >= S_TIER_CAP` → "S-tier limit reached (max 1)." Same check for A tier against `A_TIER_CAP`.
+5. **Purse:** `team.purse < (team's current bid on this lot + BID_INCREMENT)` → "not enough DevCoins."
+
+Inside atomic transaction on `/bidHistory/{lotId}/{teamId}`:
+5. Increment team's personal bid by `BID_INCREMENT`.
+
+Post-commit:
+6. Re-read all bids for the lot, sort, recompute leaderboard + clearing price.
+7. Update `/currentLot` with new leaderboard, clearing price, and extended `endsAt`.
+8. Update `team.lastBidAt`.
+
+## Key design decisions
+
+- **Purse deducted at close, not at bid time.** A team's purse is only spent when the lot closes. This means the displayed purse does not shrink during bidding — only the winning clearing price is deducted. Teams need purse ≥ their current bid to keep bidding.
+- **No tier caps per team.** Any team can bid on any S or A tool. The number of winners is capped by `maxWinners`, not by per-team limits.
+- **Clearing price = Nth bid.** All winners pay the same price — the lowest winning bid — making it fair to bid aggressively.

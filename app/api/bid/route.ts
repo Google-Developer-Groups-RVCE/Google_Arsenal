@@ -12,27 +12,24 @@ import {
  * POST /api/bid
  * Body: { teamId: string }
  *
- * Guardrail sequence per AUCTION_MODEL.md:
+ * Leaderboard auction model (new):
+ *  - Each team has ONE personal bid per lot, stored at /bidHistory/{lotId}/{teamId}.
+ *  - Each BID tap raises that team's bid by BID_INCREMENT.
+ *  - Purse is NOT deducted at bid time — only at lot close (clearing price).
+ *  - The team must have enough purse to cover (current personal bid + BID_INCREMENT).
+ *  - /currentLot.leaderboard is kept updated (top N sorted by amount desc) for display.
+ *  - Tier caps removed — any team can bid on any S or A lot.
+ *
+ * Guardrail sequence:
  *  Pre-transaction (cheap reads):
  *   1. Cooldown check
- *   2. Already-winning check
- *   3. Tier cap check
- *   4. Purse check
- *  Inside transaction (re-reads fresh data from server):
- *   5. Lot still open + not expired
- *   6. Write new bid, extend endsAt
+ *   2. Lot open + not expired
+ *   3. Purse check (must cover new bid amount)
+ *  Inside transaction on /bidHistory/{lotId}/{teamId}:
+ *   4. Atomically increment team's personal bid
  *  Post-commit:
- *   7. Update team.lastBidAt
- *   8. Append to /bidHistory
- *
- * NOTE on null-first behaviour:
- *  The Firebase Admin SDK (WebSocket mode) calls the transaction update
- *  function with `null` on the first invocation when the path isn't in its
- *  local cache. Returning `undefined` (bare `return;`) from that call aborts
- *  immediately — we never see the real data. Instead we return `null`, which
- *  tells Firebase "set to null". Firebase then detects a conflict with the
- *  actual server data and retries the function with the real value. We
- *  distinguish a genuine "null committed" outcome via txStatus.
+ *   5. Recompute leaderboard + extend timer on /currentLot
+ *   6. Update team.lastBidAt
  */
 export async function POST(req: Request) {
   let teamId: string;
@@ -50,7 +47,7 @@ export async function POST(req: Request) {
 
   const now = Date.now();
 
-  // ── Pre-transaction: cheap reads to reject obvious failures early ─────────
+  // ── Pre-transaction: cheap reads ─────────────────────────────────────────
   const [teamSnap, lotSnap] = await Promise.all([
     adminDb.ref(`teams/${teamId}`).get(),
     adminDb.ref("currentLot").get(),
@@ -75,7 +72,9 @@ export async function POST(req: Request) {
     toolName: string;
     tier: "S" | "A" | "B";
     currentBid: number;
-    currentBidderTeamId: string | null;
+    startingPrice: number;
+    maxWinners: number;
+    leaderboard: { teamId: string; teamName: string; amount: number }[];
     endsAt: number;
     status: "open" | "closed";
   };
@@ -88,106 +87,123 @@ export async function POST(req: Request) {
     );
   }
 
-  // 2. Already winning
-  if (lot.currentBidderTeamId === teamId) {
-    return NextResponse.json(
-      { error: "You're already the highest bidder." },
-      { status: 409 }
-    );
+  // 2. Lot must be open and not expired
+  if (lot.status !== "open") {
+    return NextResponse.json({ error: "Lot already closed." }, { status: 409 });
+  }
+  if (now > lot.endsAt) {
+    return NextResponse.json({ error: "Lot time has expired." }, { status: 409 });
   }
 
-  // 3. Tier cap
+  // 3. Tier cap — team must not already own the max number of this tier
   const tierCounts = team.tierCounts ?? { S: 0, A: 0, B: 0 };
   if (lot.tier === "S" && tierCounts.S >= S_TIER_CAP) {
-    return NextResponse.json({ error: "S-tier limit reached." }, { status: 409 });
+    return NextResponse.json({ error: "S-tier limit reached (max 1)." }, { status: 409 });
   }
   if (lot.tier === "A" && tierCounts.A >= A_TIER_CAP) {
-    return NextResponse.json({ error: "A-tier limit reached." }, { status: 409 });
+    return NextResponse.json({ error: "A-tier limit reached (max 2)." }, { status: 409 });
   }
 
-  // 4. Purse
-  const nextBid = lot.currentBid + BID_INCREMENT;
-  if (team.purse < nextBid) {
+  // 3. Purse check: team must afford (their current bid on this lot) + BID_INCREMENT.
+  //    Read their current personal bid from bidHistory first.
+  const currentPersonalBidSnap = await adminDb
+    .ref(`bidHistory/${lot.lotId}/${teamId}/amount`)
+    .get();
+  const currentPersonalBid: number = currentPersonalBidSnap.exists()
+    ? currentPersonalBidSnap.val()
+    : 0;
+
+  const newPersonalBid = currentPersonalBid + BID_INCREMENT;
+
+  if (team.purse < newPersonalBid) {
     return NextResponse.json({ error: "Not enough DevCoins." }, { status: 409 });
   }
 
-  // ── Firebase transaction on /currentLot ───────────────────────────────────
-  // Track what happened inside the update function so we can distinguish
-  // "null-first retry" from "genuine abort".
-  type TxStatus = "pending" | "no-data" | "not-open" | "expired" | "success";
-  let txStatus = "pending" as TxStatus;
-  let committedBid = 0;
+  // ── Atomically record team's personal bid in bidHistory ──────────────────
+  const bidEntryRef = adminDb.ref(`bidHistory/${lot.lotId}/${teamId}`);
 
-  const lotRef = adminDb.ref("currentLot");
+  type TxStatus = string;
+  let txStatus: TxStatus = "pending";
+  let committedAmount = 0;
 
   try {
-    const txResult = await lotRef.transaction((currentData) => {
-      // ── Null-first handling ──────────────────────────────────────────────
-      // Firebase Admin SDK may call with null when the path isn't cached yet.
-      // Returning null (not undefined) causes Firebase to detect a conflict
-      // with the real server data and retry with the actual current value.
-      if (currentData === null) {
+    const txResult = await bidEntryRef.transaction((current) => {
+      if (current === null) {
         txStatus = "no-data";
-        return null; // triggers retry with real server data
+        return null; // retry with real data
       }
-
-      // 5a. Lot must be open
-      if (currentData.status !== "open") {
-        txStatus = "not-open";
-        return undefined; // abort
-      }
-
-      // 5b. Lot must not have expired
-      if (Date.now() > currentData.endsAt) {
-        txStatus = "expired";
-        return undefined; // abort
-      }
-
-      // 6. Write new bid + extend timer
-      committedBid = currentData.currentBid + BID_INCREMENT;
+      // Increment the team's bid (or create it at BID_INCREMENT if first bid)
+      const prev = current?.amount ?? 0;
+      committedAmount = prev + BID_INCREMENT;
       txStatus = "success";
-
       return {
-        ...currentData,
-        currentBid: committedBid,
-        currentBidderTeamId: teamId,
-        currentBidderTeamName: team.name,
-        endsAt:
-          Math.max(currentData.endsAt, Date.now()) + ANTI_SNIPE_EXTENSION_MS,
+        teamId,
+        teamName: team.name,
+        amount: committedAmount,
+        timestamp: now,
       };
     });
 
-    // txResult.committed = false means the update function returned undefined
-    // txStatus = "no-data" + committed = true means we wrote null (lot gone)
-    if (!txResult.committed || txStatus !== "success") {
-      const messages: Record<string, string> = {
-        "no-data": "No active lot.",
-        "not-open": "Lot already closed.",
-        "expired": "Lot time has expired.",
-        "pending": "Bid failed — please try again.",
-      };
-      return NextResponse.json(
-        { error: messages[txStatus] ?? "Bid failed." },
-        { status: 409 }
-      );
+    // Handle first-ever bid for this team on this lot (null → write)
+    if (!txResult.committed && txStatus === "no-data") {
+      // First bid — the path didn't exist yet, create it directly
+      committedAmount = BID_INCREMENT;
+      await bidEntryRef.set({
+        teamId,
+        teamName: team.name,
+        amount: committedAmount,
+        timestamp: now,
+      });
+      txStatus = "success";
+    } else if (!txResult.committed) {
+      return NextResponse.json({ error: "Bid failed — please try again." }, { status: 409 });
     }
   } catch (err) {
     console.error("Bid transaction error:", err);
     return NextResponse.json({ error: "Server error during bid." }, { status: 500 });
   }
 
-  // ── Post-commit writes (fire-and-forget) ──────────────────────────────────
-  Promise.all([
-    // 7. Update team.lastBidAt
-    adminDb.ref(`teams/${teamId}/lastBidAt`).set(now),
-    // 8. Append to bidHistory
-    adminDb.ref(`bidHistory/${lot.lotId}`).push({
-      teamId,
-      teamName: team.name,
-      amount: committedBid,
-      timestamp: now,
-    }),
-  ]).catch((err) => console.error("Post-commit write error:", err));
+  // ── Post-commit: recompute leaderboard + extend timer ────────────────────
+  // Read all bids for this lot to build fresh leaderboard
+  const allBidsSnap = await adminDb.ref(`bidHistory/${lot.lotId}`).get();
+  const allBids: { teamId: string; teamName: string; amount: number }[] = [];
+  if (allBidsSnap.exists()) {
+    allBidsSnap.forEach((child) => {
+      const b = child.val();
+      allBids.push({ teamId: b.teamId, teamName: b.teamName, amount: b.amount });
+    });
+  }
 
-  return NextResponse.json({ success: true, newBid: committedBid });
+  // Sort descending by amount, keep all for leaderboard display
+  allBids.sort((a, b) => b.amount - a.amount);
+
+  // Clearing price = amount of the maxWinners-th bid (0 if fewer bids)
+  const maxWinners = lot.maxWinners ?? (lot.tier === "S" ? 4 : 6);
+  const clearingPrice =
+    allBids.length >= maxWinners
+      ? allBids[maxWinners - 1].amount
+      : allBids.length > 0
+      ? allBids[allBids.length - 1].amount
+      : lot.startingPrice;
+
+  // Update currentLot: leaderboard + extend timer + currentBid = clearing price
+  const newEndsAt = Math.max(lot.endsAt, now) + ANTI_SNIPE_EXTENSION_MS;
+  await adminDb.ref("currentLot").update({
+    leaderboard: allBids,
+    currentBid: clearingPrice,
+    // Keep a convenience field for the current leader (top bidder)
+    currentBidderTeamId: allBids[0]?.teamId ?? null,
+    currentBidderTeamName: allBids[0]?.teamName ?? null,
+    endsAt: newEndsAt,
+  });
+
+  // Update team.lastBidAt
+  await adminDb.ref(`teams/${teamId}/lastBidAt`).set(now);
+
+  return NextResponse.json({
+    success: true,
+    newPersonalBid: committedAmount,
+    clearingPrice,
+    leaderboard: allBids,
+  });
 }

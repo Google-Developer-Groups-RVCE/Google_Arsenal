@@ -16,6 +16,12 @@ type TeamData = {
   tierCounts?: { S: number; A: number; B: number };
 };
 
+type LeaderboardEntry = {
+  teamId: string;
+  teamName: string;
+  amount: number;
+};
+
 type CurrentLot = {
   lotId: string;
   toolId: string;
@@ -26,6 +32,8 @@ type CurrentLot = {
   currentBid: number;
   currentBidderTeamId: string | null;
   currentBidderTeamName: string | null;
+  leaderboard: LeaderboardEntry[] | null;
+  maxWinners: number;
   endsAt: number;
   status: "open" | "closed";
 };
@@ -231,6 +239,99 @@ function OwnedToolsBadges({
   );
 }
 
+// --- Leaderboard -------------------------------------------------------------
+
+function BidLeaderboard({
+  leaderboard,
+  maxWinners,
+  myTeamId,
+}: {
+  leaderboard: LeaderboardEntry[];
+  maxWinners: number;
+  myTeamId: string;
+}) {
+  const tierColor = {
+    winning: "border-primary/40 bg-primary/8",
+    losing: "border-zinc-700/40 bg-zinc-800/20",
+    me_winning: "border-primary/70 bg-primary/15",
+    me_losing: "border-red-500/40 bg-red-900/10",
+  };
+
+  return (
+    <div className="space-y-1.5">
+      {leaderboard.map((entry, idx) => {
+        const isWinning = idx < maxWinners;
+        const isMe = entry.teamId === myTeamId;
+        const colorKey = isMe
+          ? isWinning
+            ? "me_winning"
+            : "me_losing"
+          : isWinning
+          ? "winning"
+          : "losing";
+
+        return (
+          <div
+            key={entry.teamId}
+            className={`flex items-center justify-between px-3 py-2 rounded-xl border transition-all ${tierColor[colorKey]}`}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              {/* Rank badge */}
+              <span
+                className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-heading font-bold ${
+                  isWinning
+                    ? "bg-primary/20 text-primary"
+                    : "bg-zinc-700 text-zinc-500"
+                }`}
+              >
+                {idx + 1}
+              </span>
+              <span
+                className={`text-sm font-heading truncate ${
+                  isMe ? "font-bold text-text" : "text-zinc-300"
+                }`}
+              >
+                {entry.teamName}
+                {isMe && (
+                  <span className="ml-1.5 text-[9px] text-zinc-500 font-body normal-case">
+                    (you)
+                  </span>
+                )}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <span
+                className={`text-sm font-heading font-semibold tabular-nums ${
+                  isWinning ? "text-primary" : "text-zinc-500"
+                }`}
+              >
+                {entry.amount} DC
+              </span>
+              {isWinning && (
+                <span className="text-[9px] font-heading text-primary/70 uppercase tracking-wide">
+                  WIN
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })}
+      {/* Empty slots */}
+      {Array.from({ length: Math.max(0, maxWinners - leaderboard.length) }).map((_, i) => (
+        <div
+          key={`empty-${i}`}
+          className="flex items-center gap-2 px-3 py-2 rounded-xl border border-zinc-800/30 bg-zinc-900/20"
+        >
+          <span className="w-5 h-5 rounded-full bg-zinc-800 flex items-center justify-center text-[10px] font-heading text-zinc-600">
+            {leaderboard.length + i + 1}
+          </span>
+          <span className="text-xs text-zinc-700 font-heading italic">Open slot</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // --- Live bidder view ---------------------------------------------------------
 
 function BidView({
@@ -268,7 +369,6 @@ function BidView({
     const lotRef = ref(db, "currentLot");
     const unsubLot = onValue(lotRef, (snap) => {
       setLot(snap.exists() ? (snap.val() as CurrentLot) : null);
-      // Clear bid feedback when lot changes
       setBidFeedback(null);
     });
 
@@ -290,10 +390,10 @@ function BidView({
     if (!lot || lot.status !== "open" || !lot.endsAt) return;
     const interval = setInterval(() => {
       if (Date.now() > lot.endsAt) {
-        fetch('/api/lot/close', { 
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: '{}'
+        fetch("/api/lot/close", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
         }).catch(console.error);
       }
     }, 1000);
@@ -317,8 +417,7 @@ function BidView({
       if (!res.ok) {
         setBidFeedback(data.error || "Bid failed.");
       }
-      // On success, Firebase listeners update currentBid automatically —
-      // no need to manually update state here.
+      // On success, Firebase listeners update the leaderboard automatically.
     } catch {
       setBidFeedback("Network error — please try again.");
     } finally {
@@ -333,11 +432,36 @@ function BidView({
     return () => clearTimeout(id);
   }, [bidFeedback]);
 
-  // ── Bid button state ─────────────────────────────────────────────────────
+  // ── Derived state ─────────────────────────────────────────────────────────
   const lotOpen = lot?.status === "open" && msLeft > 0;
   const auctionLive = auctionState?.status === "live";
   const purse = teamData?.purse ?? 0;
-  const nextBid = (lot?.currentBid || lot?.startingPrice || 0) + BID_INCREMENT;
+
+  const leaderboard: LeaderboardEntry[] = Array.isArray(lot?.leaderboard)
+    ? lot!.leaderboard
+    : [];
+  const maxWinners = lot?.maxWinners ?? (lot?.tier === "S" ? 4 : 6);
+
+  // My current bid on this lot (from leaderboard)
+  const myEntry = leaderboard.find((e) => e.teamId === teamId);
+  const myCurrentBid = myEntry?.amount ?? 0;
+  const nextBid = myCurrentBid + BID_INCREMENT;
+
+  // Am I already in a winning position?
+  const myRank = myEntry ? leaderboard.indexOf(myEntry) + 1 : null;
+  const iAmWinning = myRank !== null && myRank <= maxWinners;
+
+  // Spots filled / remaining
+  const spotsFilled = Math.min(leaderboard.length, maxWinners);
+  const spotsLeft = maxWinners - spotsFilled;
+
+  // Clearing price (Nth bid or base price)
+  const clearingPrice =
+    leaderboard.length >= maxWinners
+      ? leaderboard[maxWinners - 1].amount
+      : leaderboard.length > 0
+      ? leaderboard[leaderboard.length - 1].amount
+      : lot?.startingPrice ?? 0;
 
   let bidDisabledReason: string | null = null;
   if (!connected) {
@@ -348,8 +472,6 @@ function BidView({
     bidDisabledReason = "Lot closed";
   } else if (purse < nextBid) {
     bidDisabledReason = "Purse too low";
-  } else if (lot?.currentBidderTeamId === teamId) {
-    bidDisabledReason = "You're leading";
   }
   const bidDisabled = !!bidDisabledReason || bidding;
 
@@ -408,7 +530,7 @@ function BidView({
         </div>
       </header>
 
-      <main className="flex-1 flex flex-col px-5 py-2">
+      <main className="flex-1 flex flex-col px-5 py-2 overflow-y-auto">
         {!auctionLive ? (
           <div className="flex-1 flex flex-col items-center justify-center space-y-3">
             <div
@@ -444,7 +566,7 @@ function BidView({
             <p className="text-zinc-500 font-heading text-sm">Next lot loading...</p>
           </div>
         ) : (
-          <div className="flex-1 flex flex-col space-y-5">
+          <div className="flex-1 flex flex-col space-y-4">
             {/* Tool logo + name */}
             <div className="flex items-center gap-4 pt-1">
               <div className="w-16 h-16 rounded-2xl flex-shrink-0 bg-zinc-900 border border-zinc-800 flex items-center justify-center overflow-hidden">
@@ -460,46 +582,87 @@ function BidView({
                 <h2 className="text-xl font-heading font-semibold text-text leading-tight truncate">
                   {lot.toolName}
                 </h2>
-                <div className="mt-1">
+                <div className="mt-1 flex items-center gap-2">
                   <TierPill tier={lot.tier} />
+                  <span className="text-xs text-zinc-500 font-body">
+                    {spotsFilled}/{maxWinners} spots filled
+                  </span>
                 </div>
               </div>
             </div>
 
             <div className="border-t border-zinc-800/60" />
 
-            {/* Current bid */}
-            <div className="space-y-0.5">
-              <p className="text-xs font-heading uppercase tracking-widest text-zinc-500">
-                Current Bid
-              </p>
-              <p
-                className="text-5xl font-heading font-semibold tabular-nums"
-                style={{ color: "var(--color-primary)" }}
-              >
-                {lot.currentBid || lot.startingPrice}
-              </p>
-              <p className="text-xs text-zinc-500 font-body">
-                DevCoins
-                {lot.currentBidderTeamName && (
-                  <span className="ml-1 text-zinc-400">
-                    &mdash; {lot.currentBidderTeamName} leading
-                  </span>
-                )}
-              </p>
+            {/* Bid stats row */}
+            <div className="flex gap-4">
+              <div className="flex-1 space-y-0.5">
+                <p className="text-xs font-heading uppercase tracking-widest text-zinc-500">
+                  Clearing Price
+                </p>
+                <p
+                  className="text-3xl font-heading font-semibold tabular-nums"
+                  style={{ color: "var(--color-primary)" }}
+                >
+                  {clearingPrice || lot.startingPrice}
+                </p>
+                <p className="text-xs text-zinc-500 font-body">all winners pay this</p>
+              </div>
+              <div className="flex-1 space-y-0.5">
+                <p className="text-xs font-heading uppercase tracking-widest text-zinc-500">
+                  Your Bid
+                </p>
+                <p
+                  className="text-3xl font-heading font-semibold tabular-nums"
+                  style={{ color: myCurrentBid > 0 ? (iAmWinning ? "var(--color-primary)" : "#f87171") : "#52525b" }}
+                >
+                  {myCurrentBid > 0 ? myCurrentBid : "—"}
+                </p>
+                <p className="text-xs font-body" style={{ color: iAmWinning && myCurrentBid > 0 ? "var(--color-primary)" : "rgba(161,161,170,0.6)" }}>
+                  {myCurrentBid > 0
+                    ? iAmWinning
+                      ? `Rank #${myRank} — winning`
+                      : `Rank #${myRank} — not winning`
+                    : "no bid yet"}
+                </p>
+              </div>
+              <div className="flex-1 space-y-0.5">
+                <p className="text-xs font-heading uppercase tracking-widest text-zinc-500">
+                  Time Left
+                </p>
+                <p
+                  className="text-3xl font-heading font-semibold tabular-nums transition-colors duration-300"
+                  style={{ color: countdownColor }}
+                >
+                  {lotOpen ? `${secsLeft}s` : "Closed"}
+                </p>
+              </div>
             </div>
 
-            {/* Countdown */}
-            <div className="space-y-0.5">
-              <p className="text-xs font-heading uppercase tracking-widest text-zinc-500">
-                Time Left
-              </p>
-              <p
-                className="text-5xl font-heading font-semibold tabular-nums transition-colors duration-300"
-                style={{ color: countdownColor }}
-              >
-                {lotOpen ? `${secsLeft}s` : "Closed"}
-              </p>
+            <div className="border-t border-zinc-800/60" />
+
+            {/* Live leaderboard */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-heading uppercase tracking-widest text-zinc-500">
+                  Live Leaderboard
+                </p>
+                {spotsLeft > 0 && (
+                  <span className="text-[10px] font-heading text-zinc-600 uppercase tracking-wide">
+                    {spotsLeft} open slot{spotsLeft !== 1 ? "s" : ""}
+                  </span>
+                )}
+              </div>
+              {leaderboard.length === 0 ? (
+                <p className="text-xs text-zinc-600 font-body italic py-2">
+                  No bids yet — be first!
+                </p>
+              ) : (
+                <BidLeaderboard
+                  leaderboard={leaderboard}
+                  maxWinners={maxWinners}
+                  myTeamId={teamId}
+                />
+              )}
             </div>
 
             <div className="border-t border-zinc-800/60" />
@@ -519,8 +682,17 @@ function BidView({
       <div className="sticky bottom-0 px-5 py-5 bg-background border-t border-zinc-900">
         {lot && auctionLive && lotOpen && !bidDisabledReason && !bidFeedback && (
           <p className="text-center text-xs text-zinc-500 font-body mb-3">
-            Your bid:{" "}
-            <span className="font-semibold text-text">{nextBid} DevCoins</span>
+            {myCurrentBid > 0 ? (
+              <>
+                Raise your bid to{" "}
+                <span className="font-semibold text-text">{nextBid} DC</span>
+              </>
+            ) : (
+              <>
+                Place first bid at{" "}
+                <span className="font-semibold text-text">{BID_INCREMENT} DC</span>
+              </>
+            )}
           </p>
         )}
 
@@ -533,6 +705,12 @@ function BidView({
           style={
             bidDisabled
               ? { background: "#1a1a2e", color: "#52525b", cursor: "not-allowed" }
+              : iAmWinning
+              ? {
+                  background: "linear-gradient(135deg, rgba(0,229,255,0.8), rgba(0,200,220,0.9))",
+                  color: "#000",
+                  boxShadow: "0 0 28px rgba(0,229,255,0.4), 0 4px 16px rgba(0,0,0,0.4)",
+                }
               : {
                   background: "var(--color-primary)",
                   color: "var(--color-background)",
@@ -544,10 +722,12 @@ function BidView({
             ? "Bidding..."
             : bidDisabledReason
             ? bidDisabledReason
-            : `Bid ${nextBid}`}
+            : myCurrentBid > 0
+            ? `Raise to ${nextBid} DC`
+            : `Bid ${BID_INCREMENT} DC`}
         </button>
 
-        {/* Server-side rejection reason — shown UNDER the button */}
+        {/* Server-side rejection reason */}
         {bidFeedback && (
           <div
             id="bid-rejection-msg"
@@ -558,7 +738,6 @@ function BidView({
               border: "1px solid rgba(239,68,68,0.30)",
             }}
           >
-            {/* Warning icon */}
             <svg
               viewBox="0 0 24 24"
               fill="none"

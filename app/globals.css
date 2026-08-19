@@ -34,6 +34,13 @@
   -webkit-backface-visibility: hidden;
 }
 
+@media (max-width: 768px) {
+  .register-bg {
+    animation: none;
+    transform: rotate(-45deg) translate3d(0, 0, 0);
+  }
+}
+
 .register-bg-wrapper {
   position: fixed;
   top: 0;

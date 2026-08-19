@@ -89,8 +89,8 @@ export default function RegisterPage() {
         {/* Success card */}
         <div className="relative w-full max-w-md" style={{ zIndex: 10 }}>
           <GlassSurface
-            width="100%"
-            height="auto"
+            width={"100%" as any}
+            height={"auto" as any}
             borderRadius={28}
             distortionScale={-160}
             redOffset={0}
@@ -151,8 +151,8 @@ export default function RegisterPage() {
       {/* Registration form */}
       <div className="relative w-full max-w-md" style={{ zIndex: 10 }}>
         <GlassSurface
-          width="100%"
-          height="auto"
+          width={"100%" as any}
+          height={"auto" as any}
           borderRadius={28}
           distortionScale={-160}
           redOffset={0}

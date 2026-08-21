@@ -12,9 +12,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      // Temporarily bypass auth for testing
-      setLoading(false);
-      /*
       if (!user && pathname !== "/dashboard/login") {
         router.replace("/dashboard/login");
       } else if (user && pathname === "/dashboard/login") {
@@ -22,7 +19,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       } else {
         setLoading(false);
       }
-      */
     });
 
     return () => unsubscribe();

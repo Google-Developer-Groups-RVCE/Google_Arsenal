@@ -17,7 +17,6 @@ export default function RegisterPage() {
   const [teamName, setTeamName] = useState("");
   const [members, setMembers] = useState([""]);
   const [loading, setLoading] = useState(false);
-  const [teamCode, setTeamCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const handleMemberChange = (index: number, value: string) => {
@@ -71,7 +70,18 @@ export default function RegisterPage() {
         throw new Error(data.error || "Failed to register team");
       }
 
-      setTeamCode(data.code);
+      // Save session so /bid skips the code-entry screen entirely
+      localStorage.setItem(
+        "arsenal_session",
+        JSON.stringify({
+          teamId: data.teamId,
+          teamCode: data.code,
+          teamName: teamName.trim(),
+        })
+      );
+
+      // Go straight to the auction — no code screen
+      window.location.href = "/bid";
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -79,68 +89,6 @@ export default function RegisterPage() {
     }
   };
 
-  if (teamCode) {
-    return (
-      <div className="relative min-h-[100dvh] flex items-center justify-center p-6 font-sans overflow-hidden" style={{ background: "#1e1e1e", color: "#f0f0f0" }}>
-        <AnimatedBackground />
-        {/* Dark veil over the moving bg */}
-        <div style={{ position: "fixed", inset: 0, background: "rgba(30,30,30,0.82)", zIndex: 1, pointerEvents: "none" }} />
-
-        {/* Success card */}
-        <div className="relative w-full max-w-md" style={{ zIndex: 10 }}>
-          <GlassSurface
-            width={"100%" as any}
-            height={"auto" as any}
-            borderRadius={28}
-            distortionScale={-160}
-            redOffset={0}
-            greenOffset={8}
-            blueOffset={18}
-            brightness={55}
-            opacity={0.9}
-            blur={12}
-            backgroundOpacity={0.4}
-            saturation={1.1}
-            mixBlendMode="screen"
-            style={{
-              transform: "perspective(1200px) rotateX(2deg) rotateY(-1deg)",
-              transition: "transform 0.35s cubic-bezier(0.23,1,0.32,1)",
-              boxShadow: "0 4px 24px rgba(66,133,244,0.15), 0 16px 48px rgba(0,0,0,0.5), 0 40px 80px rgba(0,0,0,0.4)",
-            }}
-          >
-            {/* Google-dark card interior */}
-            <div style={{ position: "absolute", inset: 0, borderRadius: 28, background: "rgba(30,30,30,0.88)", zIndex: 0, pointerEvents: "none" }} />
-            <div className="p-8 text-center space-y-6 w-full" style={{ position: "relative", zIndex: 1 }}>
-              {/* Google Green success icon */}
-              <div
-                className="w-20 h-20 rounded-full flex items-center justify-center mx-auto"
-                style={{ background: "rgba(52,168,83,0.15)", border: "2px solid #34a853" }}
-              >
-                <svg className="w-10 h-10" fill="none" stroke="#34a853" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-              <h1 className="text-3xl font-bold tracking-tight" style={{ color: "#f0f0f0", textShadow: "0 2px 16px rgba(66,133,244,0.4)" }}>
-                Registration Complete!
-              </h1>
-              <p style={{ color: "#a0a0a0" }}>Save this code — you'll need it to join the auction and bid.</p>
-              {/* Team code box */}
-              <div className="p-6 rounded-2xl" style={{ background: "rgba(66,133,244,0.08)", border: "1px solid rgba(66,133,244,0.3)" }}>
-                <p className="text-xs uppercase tracking-widest font-semibold mb-3" style={{ color: "#4285f4" }}>Your Team Code</p>
-                <div className="text-6xl font-black font-mono tracking-[0.2em]" style={{ color: "#f0f0f0", textShadow: "0 0 40px rgba(66,133,244,0.5)" }}>
-                  {teamCode}
-                </div>
-              </div>
-              {/* Warning — Google Yellow */}
-              <p className="text-sm font-medium p-4 rounded-xl" style={{ color: "#f9ab00", background: "rgba(249,171,0,0.08)", border: "1px solid rgba(249,171,0,0.25)" }}>
-                ⚠ Take a screenshot or write this down. It cannot be recovered later!
-              </p>
-            </div>
-          </GlassSurface>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="relative min-h-[100dvh] flex items-center justify-center p-4 font-sans overflow-hidden" style={{ background: "#1e1e1e", color: "#f0f0f0" }}>

@@ -45,11 +45,17 @@ type AuctionState = {
 
 const SESSION_KEY = "arsenal_session";
 
+// Tier colours
+const TIER = {
+  S: { bg: "#ff29d4", glow: "rgba(255,41,212,0.5)", label: "S-TIER", text: "#fff" },
+  A: { bg: "#7c3bed", glow: "rgba(124,59,237,0.5)", label: "A-TIER", text: "#fff" },
+  B: { bg: "#1e3a5f", glow: "rgba(0,229,255,0.25)", label: "B-TIER", text: "#67e8f9" },
+};
+
 // --- Countdown hook ----------------------------------------------------------
 
 function useCountdown(endsAt: number | null) {
   const [msLeft, setMsLeft] = useState(0);
-
   useEffect(() => {
     if (!endsAt) return;
     const tick = () => setMsLeft(Math.max(0, endsAt - Date.now()));
@@ -57,17 +63,12 @@ function useCountdown(endsAt: number | null) {
     const id = setInterval(tick, 100);
     return () => clearInterval(id);
   }, [endsAt]);
-
   return msLeft;
 }
 
 // --- Login screen ------------------------------------------------------------
 
-function LoginScreen({
-  onLogin,
-}: {
-  onLogin: (teamId: string, teamCode: string, teamName: string) => void;
-}) {
+function LoginScreen({ onLogin }: { onLogin: (teamId: string, teamCode: string, teamName: string) => void }) {
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,23 +76,14 @@ function LoginScreen({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = code.trim();
-    if (trimmed.length !== 4) {
-      setError("Team code is 4 digits.");
-      return;
-    }
+    if (trimmed.length !== 4) { setError("Team code is 4 digits."); return; }
     setLoading(true);
     setError(null);
-
     try {
       const res = await fetch(`/api/team-lookup?code=${trimmed}`);
       const data = await res.json();
-      if (!res.ok || !data.teamId) {
-        throw new Error(data.error || "Team not found. Check your code.");
-      }
-      localStorage.setItem(
-        SESSION_KEY,
-        JSON.stringify({ teamId: data.teamId, teamCode: trimmed, teamName: data.teamName })
-      );
+      if (!res.ok || !data.teamId) throw new Error(data.error || "Team not found. Check your code.");
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ teamId: data.teamId, teamCode: trimmed, teamName: data.teamName }));
       onLogin(data.teamId, trimmed, data.teamName);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
@@ -101,38 +93,29 @@ function LoginScreen({
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">
-      <div className="w-full max-w-sm space-y-8">
-        <div className="text-center space-y-2">
-          <div
-            className="w-16 h-16 rounded-2xl bg-primary/10 border border-primary/30 flex items-center justify-center mx-auto mb-4"
-            style={{ boxShadow: "0 0 24px rgba(0,229,255,0.15)" }}
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              className="w-8 h-8 text-primary"
-              stroke="currentColor"
-              strokeWidth={1.5}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 6v6l4 2m6-2a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z"
-              />
+    <div className="auction-theme min-h-[100dvh] flex flex-col items-center justify-center px-6 relative overflow-hidden">
+      {/* Background glow blobs */}
+      <div className="absolute inset-0 pointer-events-none">
+        <div style={{ position: "absolute", top: "-20%", left: "50%", transform: "translateX(-50%)", width: 320, height: 320, background: "radial-gradient(circle, rgba(0,229,255,0.12) 0%, transparent 70%)", borderRadius: "50%" }} />
+        <div style={{ position: "absolute", bottom: "10%", right: "-10%", width: 200, height: 200, background: "radial-gradient(circle, rgba(124,59,237,0.15) 0%, transparent 70%)", borderRadius: "50%" }} />
+      </div>
+
+      <div className="relative w-full max-w-sm space-y-8 z-10">
+        {/* Logo + title */}
+        <div className="text-center space-y-3">
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-2"
+            style={{ background: "rgba(0,229,255,0.08)", border: "1px solid rgba(0,229,255,0.25)", boxShadow: "0 0 24px rgba(0,229,255,0.12)" }}>
+            <svg viewBox="0 0 24 24" fill="none" className="w-8 h-8" stroke="currentColor" strokeWidth={1.5} style={{ color: "#00e5ff" }}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2m6-2a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z" />
             </svg>
           </div>
-          <h1 className="text-2xl font-heading font-semibold text-text">
-            Google Arsenal
-          </h1>
-          <p className="text-sm text-zinc-400">Enter your team code to join the auction</p>
+          <h1 className="text-3xl font-heading font-bold" style={{ color: "#f1f5f9" }}>Google Arsenal</h1>
+          <p className="text-sm" style={{ color: "#64748b" }}>Enter your team code to join the auction</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-1">
-            <label className="text-xs font-heading uppercase tracking-widest text-zinc-400">
-              Team Code
-            </label>
+          <div className="space-y-2">
+            <label className="text-xs font-heading uppercase tracking-widest" style={{ color: "#475569" }}>Team Code</label>
             <input
               id="team-code-input"
               type="text"
@@ -140,29 +123,32 @@ function LoginScreen({
               pattern="[0-9]{4}"
               maxLength={4}
               value={code}
-              onChange={(e) => {
-                setError(null);
-                setCode(e.target.value.replace(/\D/g, "").slice(0, 4));
-              }}
+              onChange={(e) => { setError(null); setCode(e.target.value.replace(/\D/g, "").slice(0, 4)); }}
               placeholder="0000"
-              className="w-full bg-zinc-900/80 border border-zinc-700 focus:border-primary rounded-xl px-5 py-4 text-center text-3xl font-heading font-semibold tracking-[0.4em] text-text placeholder-zinc-700 outline-none transition-colors"
-              style={{ caretColor: "var(--color-primary)" }}
               autoComplete="off"
+              className="w-full rounded-2xl px-5 py-4 text-center text-4xl font-heading font-bold tracking-[0.4em] outline-none transition-all"
+              style={{
+                background: "rgba(255,255,255,0.04)",
+                border: `1.5px solid ${code.length === 4 ? "rgba(0,229,255,0.5)" : "rgba(255,255,255,0.08)"}`,
+                color: "#f1f5f9",
+                caretColor: "#00e5ff",
+                boxShadow: code.length === 4 ? "0 0 20px rgba(0,229,255,0.1)" : "none",
+              }}
             />
           </div>
 
-          {error && (
-            <p className="text-sm text-red-400 text-center">{error}</p>
-          )}
+          {error && <p className="text-sm text-center font-body" style={{ color: "#f87171" }}>{error}</p>}
 
           <button
             id="join-auction-btn"
             type="submit"
             disabled={loading || code.length !== 4}
-            className="w-full py-4 rounded-xl font-heading font-semibold text-background text-base transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            className="w-full py-4 rounded-2xl font-heading font-bold text-base transition-all active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
             style={{
-              background: "var(--color-primary)",
-              boxShadow: code.length === 4 ? "0 0 20px rgba(0,229,255,0.35)" : "none",
+              background: code.length === 4 ? "#00e5ff" : "rgba(0,229,255,0.1)",
+              color: code.length === 4 ? "#080812" : "#334155",
+              boxShadow: code.length === 4 ? "0 0 28px rgba(0,229,255,0.35), 0 4px 16px rgba(0,0,0,0.4)" : "none",
+              border: "none",
             }}
           >
             {loading ? "Joining..." : "Join Auction"}
@@ -173,176 +159,100 @@ function LoginScreen({
   );
 }
 
-// --- Connection banner --------------------------------------------------------
+// --- Connection banner -------------------------------------------------------
 
 function ConnectionBanner({ connected }: { connected: boolean | null }) {
   if (connected === true || connected === null) return null;
-
   return (
-    <div
-      className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center gap-2 py-2 text-xs font-heading font-semibold uppercase tracking-widest"
-      style={{ background: "rgba(8,8,18,0.95)", borderBottom: "1px solid rgba(255,41,212,0.4)" }}
-    >
-      <span
-        className="inline-block w-2 h-2 rounded-full animate-pulse"
-        style={{ background: "var(--color-accent)" }}
-      />
-      <span style={{ color: "var(--color-accent)" }}>Reconnecting...</span>
+    <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center gap-2 py-2 text-xs font-heading font-semibold uppercase tracking-widest"
+      style={{ background: "rgba(8,8,18,0.95)", borderBottom: "1px solid rgba(255,41,212,0.4)" }}>
+      <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ background: "#ff29d4" }} />
+      <span style={{ color: "#ff29d4" }}>Reconnecting...</span>
     </div>
   );
 }
 
-// --- Tier pill ----------------------------------------------------------------
+// --- Tier pill ---------------------------------------------------------------
 
 function TierPill({ tier }: { tier: "S" | "A" | "B" }) {
-  const styles: Record<string, string> = {
-    S: "bg-accent/15 text-accent border-accent/30",
-    A: "bg-secondary/15 text-secondary border-secondary/40",
-    B: "bg-zinc-700/40 text-zinc-300 border-zinc-600/40",
-  };
+  const t = TIER[tier];
   return (
-    <span
-      className={`inline-flex items-center border rounded-full px-2.5 py-0.5 text-xs font-heading font-semibold uppercase tracking-wider ${styles[tier]}`}
-    >
-      {tier}-Tier
+    <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-heading font-bold uppercase tracking-wider"
+      style={{ background: `${t.bg}22`, color: t.text === "#fff" ? t.bg : t.text, border: `1px solid ${t.bg}55` }}>
+      {t.label}
     </span>
   );
 }
 
-// --- Owned tools badges -------------------------------------------------------
+// --- Owned tools badges ------------------------------------------------------
 
-function OwnedToolsBadges({
-  ownedTools,
-}: {
-  ownedTools: Record<string, { tier: "S" | "A" | "B"; price: number }>;
-}) {
+function OwnedToolsBadges({ ownedTools }: { ownedTools: Record<string, { tier: "S" | "A" | "B"; price: number }> }) {
   const entries = Object.entries(ownedTools);
-  if (entries.length === 0) {
-    return <p className="text-xs text-zinc-600">No tools yet.</p>;
-  }
-  const tierColor: Record<string, string> = {
-    S: "text-accent border-accent/30 bg-accent/10",
-    A: "text-secondary border-secondary/30 bg-secondary/10",
-    B: "text-zinc-400 border-zinc-600/30 bg-zinc-800/40",
-  };
+  if (entries.length === 0) return <p className="text-xs italic" style={{ color: "#334155" }}>No tools yet.</p>;
   return (
-    <div className="flex flex-wrap gap-2">
-      {entries.map(([toolId, info]) => (
-        <span
-          key={toolId}
-          className={`text-xs font-heading border rounded-full px-2.5 py-0.5 ${tierColor[info.tier]}`}
-        >
-          {toolId}
-        </span>
-      ))}
+    <div className="flex flex-wrap gap-1.5">
+      {entries.map(([toolId, info]) => {
+        const t = TIER[info.tier];
+        return (
+          <span key={toolId} className="text-xs font-heading rounded-full px-2 py-0.5"
+            style={{ background: `${t.bg}18`, color: t.bg, border: `1px solid ${t.bg}40` }}>
+            {toolId}
+          </span>
+        );
+      })}
     </div>
   );
 }
 
 // --- Leaderboard -------------------------------------------------------------
 
-function BidLeaderboard({
-  leaderboard,
-  maxWinners,
-  myTeamId,
-}: {
-  leaderboard: LeaderboardEntry[];
-  maxWinners: number;
-  myTeamId: string;
-}) {
-  const tierColor = {
-    winning: "border-primary/40 bg-primary/8",
-    losing: "border-zinc-700/40 bg-zinc-800/20",
-    me_winning: "border-primary/70 bg-primary/15",
-    me_losing: "border-red-500/40 bg-red-900/10",
-  };
-
+function BidLeaderboard({ leaderboard, maxWinners, myTeamId }: { leaderboard: LeaderboardEntry[]; maxWinners: number; myTeamId: string }) {
   return (
     <div className="space-y-1.5">
       {leaderboard.map((entry, idx) => {
         const isWinning = idx < maxWinners;
         const isMe = entry.teamId === myTeamId;
-        const colorKey = isMe
-          ? isWinning
-            ? "me_winning"
-            : "me_losing"
-          : isWinning
-          ? "winning"
-          : "losing";
-
         return (
-          <div
-            key={entry.teamId}
-            className={`flex items-center justify-between px-3 py-2 rounded-xl border transition-all ${tierColor[colorKey]}`}
-          >
+          <div key={entry.teamId}
+            className="flex items-center justify-between px-3 py-2 rounded-xl transition-all"
+            style={{
+              background: isMe
+                ? isWinning ? "rgba(0,229,255,0.08)" : "rgba(239,68,68,0.07)"
+                : isWinning ? "rgba(0,229,255,0.04)" : "rgba(255,255,255,0.02)",
+              border: isMe
+                ? isWinning ? "1px solid rgba(0,229,255,0.35)" : "1px solid rgba(239,68,68,0.35)"
+                : isWinning ? "1px solid rgba(0,229,255,0.15)" : "1px solid rgba(255,255,255,0.05)",
+            }}>
             <div className="flex items-center gap-2 min-w-0">
-              {/* Rank badge */}
-              <span
-                className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-heading font-bold ${
-                  isWinning
-                    ? "bg-primary/20 text-primary"
-                    : "bg-zinc-700 text-zinc-500"
-                }`}
-              >
+              <span className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-heading font-bold"
+                style={{ background: isWinning ? "rgba(0,229,255,0.15)" : "rgba(255,255,255,0.06)", color: isWinning ? "#00e5ff" : "#475569" }}>
                 {idx + 1}
               </span>
-              <span
-                className={`text-sm font-heading truncate ${
-                  isMe ? "font-bold text-text" : "text-zinc-300"
-                }`}
-              >
-                {entry.teamName}
-                {isMe && (
-                  <span className="ml-1.5 text-[9px] text-zinc-500 font-body normal-case">
-                    (you)
-                  </span>
-                )}
+              <span className="text-sm font-heading truncate" style={{ color: isMe ? "#f1f5f9" : "#94a3b8", fontWeight: isMe ? 700 : 500 }}>
+                {entry.teamName}{isMe && <span className="ml-1 text-[9px] font-body normal-case" style={{ color: "#475569" }}>(you)</span>}
               </span>
             </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <span
-                className={`text-sm font-heading font-semibold tabular-nums ${
-                  isWinning ? "text-primary" : "text-zinc-500"
-                }`}
-              >
-                {entry.amount} DC
-              </span>
-              {isWinning && (
-                <span className="text-[9px] font-heading text-primary/70 uppercase tracking-wide">
-                  WIN
-                </span>
-              )}
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <span className="text-sm font-heading font-bold tabular-nums" style={{ color: isWinning ? "#00e5ff" : "#475569" }}>{entry.amount} DC</span>
+              {isWinning && <span className="text-[9px] font-heading uppercase tracking-wide" style={{ color: "rgba(0,229,255,0.6)" }}>WIN</span>}
             </div>
           </div>
         );
       })}
-      {/* Empty slots */}
       {Array.from({ length: Math.max(0, maxWinners - leaderboard.length) }).map((_, i) => (
-        <div
-          key={`empty-${i}`}
-          className="flex items-center gap-2 px-3 py-2 rounded-xl border border-zinc-800/30 bg-zinc-900/20"
-        >
-          <span className="w-5 h-5 rounded-full bg-zinc-800 flex items-center justify-center text-[10px] font-heading text-zinc-600">
-            {leaderboard.length + i + 1}
-          </span>
-          <span className="text-xs text-zinc-700 font-heading italic">Open slot</span>
+        <div key={`empty-${i}`} className="flex items-center gap-2 px-3 py-2 rounded-xl"
+          style={{ background: "rgba(255,255,255,0.015)", border: "1px solid rgba(255,255,255,0.04)" }}>
+          <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-heading" style={{ background: "rgba(255,255,255,0.04)", color: "#334155" }}>{leaderboard.length + i + 1}</span>
+          <span className="text-xs font-heading italic" style={{ color: "#334155" }}>Open slot</span>
         </div>
       ))}
     </div>
   );
 }
 
-// --- Live bidder view ---------------------------------------------------------
+// --- Live bidder view --------------------------------------------------------
 
-function BidView({
-  teamId,
-  teamName,
-  onSignOut,
-}: {
-  teamId: string;
-  teamName: string;
-  onSignOut: () => void;
-}) {
+function BidView({ teamId, teamName, onSignOut }: { teamId: string; teamName: string; onSignOut: () => void }) {
   const [teamData, setTeamData] = useState<TeamData | null>(null);
   const [lot, setLot] = useState<CurrentLot | null>(null);
   const [auctionState, setAuctionState] = useState<AuctionState | null>(null);
@@ -354,345 +264,218 @@ function BidView({
   const secsLeft = Math.ceil(msLeft / 1000);
   const isUrgent = secsLeft <= 5 && secsLeft > 0;
 
-  // ── Firebase listeners ───────────────────────────────────────────────────
   useEffect(() => {
-    const connRef = ref(db, ".info/connected");
-    const unsubConn = onValue(connRef, (snap) => {
-      setConnected(snap.val() === true);
-    });
-
-    const teamRef = ref(db, `teams/${teamId}`);
-    const unsubTeam = onValue(teamRef, (snap) => {
-      if (snap.exists()) setTeamData(snap.val() as TeamData);
-    });
-
-    const lotRef = ref(db, "currentLot");
-    const unsubLot = onValue(lotRef, (snap) => {
-      setLot(snap.exists() ? (snap.val() as CurrentLot) : null);
-      setBidFeedback(null);
-    });
-
-    const stateRef = ref(db, "auctionState");
-    const unsubState = onValue(stateRef, (snap) => {
-      setAuctionState(snap.exists() ? (snap.val() as AuctionState) : null);
-    });
-
-    return () => {
-      unsubConn();
-      unsubTeam();
-      unsubLot();
-      unsubState();
-    };
+    const unsubConn = onValue(ref(db, ".info/connected"), (snap) => setConnected(snap.val() === true));
+    const unsubTeam = onValue(ref(db, `teams/${teamId}`), (snap) => { if (snap.exists()) setTeamData(snap.val() as TeamData); });
+    const unsubLot = onValue(ref(db, "currentLot"), (snap) => { setLot(snap.exists() ? snap.val() as CurrentLot : null); setBidFeedback(null); });
+    const unsubState = onValue(ref(db, "auctionState"), (snap) => setAuctionState(snap.exists() ? snap.val() as AuctionState : null));
+    return () => { unsubConn(); unsubTeam(); unsubLot(); unsubState(); };
   }, [teamId]);
 
-  // ── Auto-close lot logic ─────────────────────────────────────────────────
   useEffect(() => {
     if (!lot || lot.status !== "open" || !lot.endsAt) return;
     const interval = setInterval(() => {
-      if (Date.now() > lot.endsAt) {
-        fetch("/api/lot/close", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: "{}",
-        }).catch(console.error);
-      }
+      if (Date.now() > lot.endsAt) fetch("/api/lot/close", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(console.error);
     }, 1000);
     return () => clearInterval(interval);
   }, [lot]);
 
-  // ── Bid handler ──────────────────────────────────────────────────────────
   const handleBid = useCallback(async () => {
     if (bidding) return;
     setBidding(true);
     setBidFeedback(null);
-
     try {
-      const res = await fetch("/api/bid", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ teamId }),
-      });
+      const res = await fetch("/api/bid", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId }) });
       const data = await res.json();
-
-      if (!res.ok) {
-        setBidFeedback(data.error || "Bid failed.");
-      }
-      // On success, Firebase listeners update the leaderboard automatically.
-    } catch {
-      setBidFeedback("Network error — please try again.");
-    } finally {
-      setBidding(false);
-    }
+      if (!res.ok) setBidFeedback(data.error || "Bid failed.");
+    } catch { setBidFeedback("Network error — please try again."); }
+    finally { setBidding(false); }
   }, [bidding, teamId]);
 
-  // Clear feedback after 3 s
   useEffect(() => {
     if (!bidFeedback) return;
     const id = setTimeout(() => setBidFeedback(null), 3000);
     return () => clearTimeout(id);
   }, [bidFeedback]);
 
-  // ── Derived state ─────────────────────────────────────────────────────────
   const lotOpen = lot?.status === "open" && msLeft > 0;
   const auctionLive = auctionState?.status === "live";
   const purse = teamData?.purse ?? 0;
-
-  const leaderboard: LeaderboardEntry[] = Array.isArray(lot?.leaderboard)
-    ? lot!.leaderboard
-    : [];
+  const leaderboard: LeaderboardEntry[] = Array.isArray(lot?.leaderboard) ? lot!.leaderboard : [];
   const maxWinners = lot?.maxWinners ?? (lot?.tier === "S" ? 4 : 6);
-
-  // My current bid on this lot (from leaderboard)
   const myEntry = leaderboard.find((e) => e.teamId === teamId);
   const myCurrentBid = myEntry?.amount ?? 0;
   const nextBid = myCurrentBid + BID_INCREMENT;
-
-  // Am I already in a winning position?
   const myRank = myEntry ? leaderboard.indexOf(myEntry) + 1 : null;
   const iAmWinning = myRank !== null && myRank <= maxWinners;
-
-  // Spots filled / remaining
   const spotsFilled = Math.min(leaderboard.length, maxWinners);
   const spotsLeft = maxWinners - spotsFilled;
-
-  // Clearing price (Nth bid or base price)
-  const clearingPrice =
-    leaderboard.length >= maxWinners
-      ? leaderboard[maxWinners - 1].amount
-      : leaderboard.length > 0
-      ? leaderboard[leaderboard.length - 1].amount
-      : lot?.startingPrice ?? 0;
+  const clearingPrice = leaderboard.length >= maxWinners ? leaderboard[maxWinners - 1].amount : leaderboard.length > 0 ? leaderboard[leaderboard.length - 1].amount : lot?.startingPrice ?? 0;
 
   let bidDisabledReason: string | null = null;
-  if (!connected) {
-    bidDisabledReason = "Reconnecting...";
-  } else if (!auctionLive) {
-    bidDisabledReason = "Auction not live";
-  } else if (!lotOpen) {
-    bidDisabledReason = "Lot closed";
-  } else if (purse < nextBid) {
-    bidDisabledReason = "Purse too low";
-  }
+  if (!connected) bidDisabledReason = "Reconnecting...";
+  else if (!auctionLive) bidDisabledReason = "Auction not live";
+  else if (!lotOpen) bidDisabledReason = "Lot closed";
+  else if (purse < nextBid) bidDisabledReason = "Purse too low";
   const bidDisabled = !!bidDisabledReason || bidding;
 
-  const countdownColor = isUrgent ? "var(--color-accent)" : "var(--color-primary)";
+  const tierMeta = lot ? TIER[lot.tier] : null;
 
   return (
-    <div className="min-h-screen bg-background text-text flex flex-col font-body">
+    <div className="auction-theme min-h-[100dvh] flex flex-col font-body relative" style={{ background: "#080812" }}>
       <ConnectionBanner connected={connected} />
 
-      <header
-        className="flex items-center justify-between px-5 pt-5 pb-3"
-        style={{ paddingTop: connected === false ? "3rem" : undefined }}
-      >
-        <span className="text-xs font-heading uppercase tracking-widest text-zinc-500">
-          {teamName}
-        </span>
+      {/* Ambient background glow tied to tier */}
+      {tierMeta && (
+        <div className="absolute inset-0 pointer-events-none" style={{
+          background: `radial-gradient(ellipse 80% 40% at 50% 0%, ${tierMeta.glow} 0%, transparent 70%)`,
+          transition: "background 1s ease",
+        }} />
+      )}
+
+      {/* ── Header ── */}
+      <header className="flex items-center justify-between px-5 pt-5 pb-3 relative z-10"
+        style={{ paddingTop: connected === false ? "3rem" : undefined }}>
+        <div className="flex flex-col">
+          <span className="text-xs font-heading uppercase tracking-widest" style={{ color: "#475569" }}>BIDDER</span>
+          <span className="text-sm font-heading font-bold" style={{ color: "#94a3b8" }}>{teamName}</span>
+        </div>
         <div className="flex items-center gap-3">
           {teamData && (
-            <div
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border"
-              style={{
-                background: "rgba(0,229,255,0.07)",
-                borderColor: "rgba(0,229,255,0.25)",
-              }}
-            >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                className="w-3.5 h-3.5"
-                stroke="currentColor"
-                strokeWidth={2}
-                style={{ color: "var(--color-primary)" }}
-              >
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
+              style={{ background: "rgba(0,229,255,0.06)", border: "1px solid rgba(0,229,255,0.2)" }}>
+              <svg viewBox="0 0 24 24" fill="none" className="w-3.5 h-3.5" stroke="currentColor" strokeWidth={2} style={{ color: "#00e5ff" }}>
                 <circle cx="12" cy="12" r="10" />
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M12 6v12M9 9h4.5a1.5 1.5 0 0 1 0 3H9m0 0h5.25A1.5 1.5 0 0 1 14.25 15H9"
-                />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12M9 9h4.5a1.5 1.5 0 0 1 0 3H9m0 0h5.25A1.5 1.5 0 0 1 14.25 15H9" />
               </svg>
-              <span
-                className="text-sm font-heading font-semibold tabular-nums"
-                style={{ color: "var(--color-primary)" }}
-              >
-                {purse}
-              </span>
+              <span className="text-sm font-heading font-bold tabular-nums" style={{ color: "#00e5ff" }}>{purse}</span>
+              <span className="text-xs font-heading" style={{ color: "rgba(0,229,255,0.5)" }}>DC</span>
             </div>
           )}
-          <button
-            id="bid-sign-out-btn"
-            onClick={onSignOut}
-            className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors font-heading"
-          >
+          <button id="bid-sign-out-btn" onClick={onSignOut}
+            className="text-xs font-heading transition-colors px-2 py-1 rounded-lg"
+            style={{ color: "#334155" }}>
             Leave
           </button>
         </div>
       </header>
 
-      <main className="flex-1 flex flex-col px-5 py-2 overflow-y-auto">
+      {/* ── Main ── */}
+      <main className="flex-1 flex flex-col px-5 py-3 overflow-y-auto relative z-10 space-y-4 pb-2">
+
         {!auctionLive ? (
-          <div className="flex-1 flex flex-col items-center justify-center space-y-3">
-            <div
-              className="w-12 h-12 rounded-full border-2 border-dashed flex items-center justify-center"
-              style={{ borderColor: "rgba(0,229,255,0.2)" }}
-            >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                className="w-5 h-5 text-zinc-600"
-                stroke="currentColor"
-                strokeWidth={1.5}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M12 6v6l4 2m6-2a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z"
-                />
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 min-h-[50vh]">
+            <div className="w-16 h-16 rounded-full flex items-center justify-center"
+              style={{ background: "rgba(0,229,255,0.05)", border: "1px dashed rgba(0,229,255,0.2)" }}>
+              <svg viewBox="0 0 24 24" fill="none" className="w-7 h-7" stroke="currentColor" strokeWidth={1.5} style={{ color: "#334155" }}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2m6-2a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z" />
               </svg>
             </div>
-            <p className="text-zinc-500 font-heading text-sm">
-              {auctionState?.status === "not_started"
-                ? "Waiting for auction to start..."
-                : auctionState?.status === "paused"
-                ? "Auction paused"
-                : auctionState?.status === "finished"
-                ? "Auction finished"
-                : "Connecting..."}
+            <p className="text-base font-heading" style={{ color: "#475569" }}>
+              {auctionState?.status === "not_started" ? "Waiting for auction to start..." :
+               auctionState?.status === "paused" ? "Auction paused" :
+               auctionState?.status === "finished" ? "Auction finished 🎉" : "Connecting..."}
             </p>
           </div>
         ) : !lot ? (
-          <div className="flex-1 flex flex-col items-center justify-center">
-            <p className="text-zinc-500 font-heading text-sm">Next lot loading...</p>
+          <div className="flex-1 flex flex-col items-center justify-center min-h-[50vh]">
+            <p className="font-heading text-sm" style={{ color: "#475569" }}>Next lot loading...</p>
           </div>
         ) : (
-          <div className="flex-1 flex flex-col space-y-4">
-            {/* Tool logo + name */}
-            <div className="flex items-center gap-4 pt-1">
-              <div className="w-16 h-16 rounded-2xl flex-shrink-0 bg-zinc-900 border border-zinc-800 flex items-center justify-center overflow-hidden">
-                {lot.logoUrl ? (
-                  <img src={lot.logoUrl} alt={lot.toolName} className="w-11 h-11 object-contain" />
-                ) : (
-                  <span className="text-xl font-heading font-bold text-zinc-500">
-                    {lot.toolName.slice(0, 2).toUpperCase()}
-                  </span>
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <h2 className="text-xl font-heading font-semibold text-text leading-tight truncate">
-                  {lot.toolName}
-                </h2>
-                <div className="mt-1 flex items-center gap-2">
-                  <TierPill tier={lot.tier} />
-                  <span className="text-xs text-zinc-500 font-body">
-                    {spotsFilled}/{maxWinners} spots filled
-                  </span>
+          <>
+            {/* ── Tool card ── */}
+            <div className="rounded-2xl p-4 relative overflow-hidden"
+              style={{
+                background: "rgba(255,255,255,0.025)",
+                border: `1px solid ${tierMeta?.bg ?? "#334155"}40`,
+                boxShadow: `0 0 30px ${tierMeta?.glow ?? "transparent"}`,
+              }}>
+              {/* Subtle tier glow bg */}
+              <div className="absolute inset-0 pointer-events-none rounded-2xl" style={{
+                background: `radial-gradient(circle at top right, ${tierMeta?.glow ?? "transparent"}, transparent 60%)`,
+                opacity: 0.4,
+              }} />
+
+              <div className="flex items-center gap-4 relative z-10">
+                {/* Logo */}
+                <div className="w-16 h-16 rounded-2xl flex-shrink-0 flex items-center justify-center overflow-hidden"
+                  style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                  {lot.logoUrl ? (
+                    <img src={lot.logoUrl} alt={lot.toolName} className="w-11 h-11 object-contain" />
+                  ) : (
+                    <span className="text-lg font-heading font-bold" style={{ color: "#334155" }}>
+                      {lot.toolName.slice(0, 2).toUpperCase()}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <h2 className="text-xl font-heading font-bold leading-tight" style={{ color: "#f1f5f9" }}>{lot.toolName}</h2>
+                  <div className="flex items-center gap-2 mt-1">
+                    <TierPill tier={lot.tier} />
+                    <span className="text-xs font-body" style={{ color: "#334155" }}>{spotsFilled}/{maxWinners} spots</span>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div className="border-t border-zinc-800/60" />
-
-            {/* Bid stats row */}
-            <div className="flex gap-4">
-              <div className="flex-1 space-y-0.5">
-                <p className="text-xs font-heading uppercase tracking-widest text-zinc-500">
-                  Clearing Price
-                </p>
-                <p
-                  className="text-3xl font-heading font-semibold tabular-nums"
-                  style={{ color: "var(--color-primary)" }}
-                >
-                  {clearingPrice || lot.startingPrice}
-                </p>
-                <p className="text-xs text-zinc-500 font-body">all winners pay this</p>
-              </div>
-              <div className="flex-1 space-y-0.5">
-                <p className="text-xs font-heading uppercase tracking-widest text-zinc-500">
-                  Your Bid
-                </p>
-                <p
-                  className="text-3xl font-heading font-semibold tabular-nums"
-                  style={{ color: myCurrentBid > 0 ? (iAmWinning ? "var(--color-primary)" : "#f87171") : "#52525b" }}
-                >
-                  {myCurrentBid > 0 ? myCurrentBid : "—"}
-                </p>
-                <p className="text-xs font-body" style={{ color: iAmWinning && myCurrentBid > 0 ? "var(--color-primary)" : "rgba(161,161,170,0.6)" }}>
-                  {myCurrentBid > 0
-                    ? iAmWinning
-                      ? `Rank #${myRank} — winning`
-                      : `Rank #${myRank} — not winning`
-                    : "no bid yet"}
-                </p>
-              </div>
-              <div className="flex-1 space-y-0.5">
-                <p className="text-xs font-heading uppercase tracking-widest text-zinc-500">
-                  Time Left
-                </p>
-                <p
-                  className="text-3xl font-heading font-semibold tabular-nums transition-colors duration-300"
-                  style={{ color: countdownColor }}
-                >
-                  {lotOpen ? `${secsLeft}s` : "Closed"}
-                </p>
-              </div>
+            {/* ── Stats row ── */}
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { label: "Clearing", value: clearingPrice || lot.startingPrice, unit: "DC", color: "#00e5ff" },
+                { label: "Your Bid", value: myCurrentBid > 0 ? myCurrentBid : "—", unit: myCurrentBid > 0 ? "DC" : "", color: myCurrentBid > 0 ? (iAmWinning ? "#00e5ff" : "#f87171") : "#334155" },
+                { label: "Time Left", value: lotOpen ? `${secsLeft}s` : "Closed", unit: "", color: isUrgent ? "#ff29d4" : "#00e5ff" },
+              ].map((s) => (
+                <div key={s.label} className="rounded-xl p-3 flex flex-col gap-0.5"
+                  style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                  <span className="text-[10px] font-heading uppercase tracking-widest" style={{ color: "#334155" }}>{s.label}</span>
+                  <span className="text-2xl font-heading font-bold tabular-nums leading-none" style={{ color: s.color, filter: isUrgent && s.label === "Time Left" ? "drop-shadow(0 0 8px rgba(255,41,212,0.6))" : undefined }}>
+                    {s.value}
+                    {s.unit && <span className="text-sm ml-0.5" style={{ color: `${s.color}80` }}>{s.unit}</span>}
+                  </span>
+                  {s.label === "Your Bid" && myCurrentBid > 0 && (
+                    <span className="text-[9px] font-body" style={{ color: iAmWinning ? "rgba(0,229,255,0.6)" : "rgba(248,113,113,0.7)" }}>
+                      {iAmWinning ? `#${myRank} · winning` : `#${myRank} · not winning`}
+                    </span>
+                  )}
+                </div>
+              ))}
             </div>
 
-            <div className="border-t border-zinc-800/60" />
-
-            {/* Live leaderboard */}
+            {/* ── Live leaderboard ── */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <p className="text-xs font-heading uppercase tracking-widest text-zinc-500">
-                  Live Leaderboard
-                </p>
+                <span className="text-[10px] font-heading uppercase tracking-widest" style={{ color: "#334155" }}>Live Leaderboard</span>
                 {spotsLeft > 0 && (
-                  <span className="text-[10px] font-heading text-zinc-600 uppercase tracking-wide">
+                  <span className="text-[10px] font-heading uppercase tracking-wide" style={{ color: "#334155" }}>
                     {spotsLeft} open slot{spotsLeft !== 1 ? "s" : ""}
                   </span>
                 )}
               </div>
               {leaderboard.length === 0 ? (
-                <p className="text-xs text-zinc-600 font-body italic py-2">
-                  No bids yet — be first!
-                </p>
+                <p className="text-xs font-body italic py-2" style={{ color: "#334155" }}>No bids yet — be first!</p>
               ) : (
-                <BidLeaderboard
-                  leaderboard={leaderboard}
-                  maxWinners={maxWinners}
-                  myTeamId={teamId}
-                />
+                <BidLeaderboard leaderboard={leaderboard} maxWinners={maxWinners} myTeamId={teamId} />
               )}
             </div>
 
-            <div className="border-t border-zinc-800/60" />
-
-            {/* Owned tools */}
-            <div className="space-y-2">
-              <p className="text-xs font-heading uppercase tracking-widest text-zinc-500">
-                Your Tools
-              </p>
-              <OwnedToolsBadges ownedTools={teamData?.ownedTools ?? {}} />
-            </div>
-          </div>
+            {/* ── Owned tools ── */}
+            {teamData && Object.keys(teamData.ownedTools ?? {}).length > 0 && (
+              <div className="space-y-2">
+                <span className="text-[10px] font-heading uppercase tracking-widest" style={{ color: "#334155" }}>Your Tools</span>
+                <OwnedToolsBadges ownedTools={teamData.ownedTools ?? {}} />
+              </div>
+            )}
+          </>
         )}
       </main>
 
-      {/* Bid button */}
-      <div className="sticky bottom-0 px-5 py-5 bg-background border-t border-zinc-900">
+      {/* ── Sticky bid button ── */}
+      <div className="sticky bottom-0 z-20 px-5 py-4 relative"
+        style={{ background: "rgba(8,8,18,0.95)", borderTop: "1px solid rgba(255,255,255,0.05)", backdropFilter: "blur(20px)" }}>
         {lot && auctionLive && lotOpen && !bidDisabledReason && !bidFeedback && (
-          <p className="text-center text-xs text-zinc-500 font-body mb-3">
-            {myCurrentBid > 0 ? (
-              <>
-                Raise your bid to{" "}
-                <span className="font-semibold text-text">{nextBid} DC</span>
-              </>
-            ) : (
-              <>
-                Place first bid at{" "}
-                <span className="font-semibold text-text">{BID_INCREMENT} DC</span>
-              </>
-            )}
+          <p className="text-center text-xs font-body mb-3" style={{ color: "#475569" }}>
+            {myCurrentBid > 0 ? <>Raise to <span className="font-bold" style={{ color: "#94a3b8" }}>{nextBid} DC</span></> : <>First bid at <span className="font-bold" style={{ color: "#94a3b8" }}>{BID_INCREMENT} DC</span></>}
           </p>
         )}
 
@@ -701,60 +484,26 @@ function BidView({
           onClick={handleBid}
           disabled={bidDisabled}
           aria-disabled={bidDisabled}
-          className="w-full py-5 rounded-2xl font-heading font-semibold text-lg transition-all active:scale-[0.97]"
+          className="w-full py-5 rounded-2xl font-heading font-bold text-xl transition-all active:scale-[0.97]"
           style={
             bidDisabled
-              ? { background: "#1a1a2e", color: "#52525b", cursor: "not-allowed" }
+              ? { background: "rgba(255,255,255,0.04)", color: "#334155", cursor: "not-allowed", border: "1px solid rgba(255,255,255,0.06)" }
               : iAmWinning
-              ? {
-                  background: "linear-gradient(135deg, rgba(0,229,255,0.8), rgba(0,200,220,0.9))",
-                  color: "#000",
-                  boxShadow: "0 0 28px rgba(0,229,255,0.4), 0 4px 16px rgba(0,0,0,0.4)",
-                }
-              : {
-                  background: "var(--color-primary)",
-                  color: "var(--color-background)",
-                  boxShadow: "0 0 28px rgba(0,229,255,0.4), 0 4px 16px rgba(0,0,0,0.4)",
-                }
+              ? { background: "linear-gradient(135deg, #00e5ff, #00b4cc)", color: "#080812", boxShadow: "0 0 32px rgba(0,229,255,0.45), 0 4px 20px rgba(0,0,0,0.5)", border: "none" }
+              : { background: "#00e5ff", color: "#080812", boxShadow: "0 0 32px rgba(0,229,255,0.4), 0 4px 20px rgba(0,0,0,0.5)", border: "none" }
           }
         >
-          {bidding
-            ? "Bidding..."
-            : bidDisabledReason
-            ? bidDisabledReason
-            : myCurrentBid > 0
-            ? `Raise to ${nextBid} DC`
-            : `Bid ${BID_INCREMENT} DC`}
+          {bidding ? "Bidding..." : bidDisabledReason ? bidDisabledReason : myCurrentBid > 0 ? `Raise to ${nextBid} DC` : `Bid ${BID_INCREMENT} DC`}
         </button>
 
-        {/* Server-side rejection reason */}
         {bidFeedback && (
-          <div
-            id="bid-rejection-msg"
-            role="alert"
+          <div id="bid-rejection-msg" role="alert"
             className="mt-3 flex items-center justify-center gap-2 rounded-xl px-4 py-2.5"
-            style={{
-              background: "rgba(239,68,68,0.10)",
-              border: "1px solid rgba(239,68,68,0.30)",
-            }}
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              className="w-4 h-4 flex-shrink-0"
-              stroke="currentColor"
-              strokeWidth={2}
-              style={{ color: "#f87171" }}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
-              />
+            style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)" }}>
+            <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4 flex-shrink-0" stroke="currentColor" strokeWidth={2} style={{ color: "#f87171" }}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
             </svg>
-            <span className="text-sm font-body" style={{ color: "#fca5a5" }}>
-              {bidFeedback}
-            </span>
+            <span className="text-sm font-body" style={{ color: "#fca5a5" }}>{bidFeedback}</span>
           </div>
         )}
       </div>
@@ -762,14 +511,10 @@ function BidView({
   );
 }
 
-// --- Root page ----------------------------------------------------------------
+// --- Root page ---------------------------------------------------------------
 
 export default function BidPage() {
-  const [session, setSession] = useState<{
-    teamId: string;
-    teamCode: string;
-    teamName: string;
-  } | null>(null);
+  const [session, setSession] = useState<{ teamId: string; teamCode: string; teamName: string } | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
@@ -777,22 +522,15 @@ export default function BidPage() {
       const raw = localStorage.getItem(SESSION_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed.teamId && parsed.teamCode) {
-          setSession(parsed);
-        }
+        if (parsed.teamId && parsed.teamCode) setSession(parsed);
       }
-    } catch {
-      // malformed -- ignore
-    }
+    } catch { /* malformed */ }
     setHydrated(true);
   }, []);
 
-  const handleLogin = useCallback(
-    (teamId: string, teamCode: string, teamName: string) => {
-      setSession({ teamId, teamCode, teamName });
-    },
-    []
-  );
+  const handleLogin = useCallback((teamId: string, teamCode: string, teamName: string) => {
+    setSession({ teamId, teamCode, teamName });
+  }, []);
 
   const handleSignOut = useCallback(() => {
     localStorage.removeItem(SESSION_KEY);
@@ -801,24 +539,13 @@ export default function BidPage() {
 
   if (!hydrated) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div
-          className="w-8 h-8 rounded-full border-2 animate-spin"
-          style={{ borderColor: "var(--color-primary)", borderTopColor: "transparent" }}
-        />
+      <div className="auction-theme min-h-screen flex items-center justify-center" style={{ background: "#080812" }}>
+        <div className="w-8 h-8 rounded-full border-2 animate-spin" style={{ borderColor: "#00e5ff", borderTopColor: "transparent" }} />
       </div>
     );
   }
 
-  if (!session) {
-    return <LoginScreen onLogin={handleLogin} />;
-  }
+  if (!session) return <LoginScreen onLogin={handleLogin} />;
 
-  return (
-    <BidView
-      teamId={session.teamId}
-      teamName={session.teamName}
-      onSignOut={handleSignOut}
-    />
-  );
+  return <BidView teamId={session.teamId} teamName={session.teamName} onSignOut={handleSignOut} />;
 }

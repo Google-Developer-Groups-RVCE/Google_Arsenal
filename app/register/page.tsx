@@ -80,8 +80,8 @@ export default function RegisterPage() {
         })
       );
 
-      // Go straight to the auction — no code screen
-      window.location.href = "/bid";
+      // Route directly into the marketplace — code is stored in session, no display screen
+      window.location.href = "/market";
     } catch (err: any) {
       setError(err.message);
     } finally {

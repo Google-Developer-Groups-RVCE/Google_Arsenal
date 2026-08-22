@@ -1,13 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
+import { MARKETPLACE_TOOLS } from "@/lib/marketplace";
 
 const BounceCanvas = dynamic(() => import("./components/BounceCanvas"), { ssr: false });
 
 /* ─────────────────────────────────────────────────────────
-   PALETTE (per brand spec)
+   PALETTE
 ───────────────────────────────────────────────────────── */
 const C = {
   blue:    "#4285f4",
@@ -17,80 +18,89 @@ const C = {
   hBlue:   "#57caff",
   hGreen:  "#5cdb6d",
   hYellow: "#ffd427",
-  hRed:    "#ff7daf",
   offWhite:"#f0f0f0",
-  black:   "#1e1e1e",
 };
 
 /* ─────────────────────────────────────────────────────────
-   DATA
+   RULES — marketplace edition
 ───────────────────────────────────────────────────────── */
-const TOOLS = {
-  S: [
-    { name: "Google Antigravity",       desc: "Agentic, plans/codes/debugs semi-autonomously",      emoji: "🤖" },
-    { name: "Firebase Studio",          desc: "Full app scaffold: DB + Auth + Hosting + AI assist", emoji: "🔥" },
-    { name: "Gemini 2.5 Pro",           desc: "Best reasoning, huge context, multimodal",           emoji: "✨" },
-    { name: "Vertex AI Agent Builder",  desc: "Production-grade multi-agent orchestration",         emoji: "🧠" },
-  ],
-  A: [
-    { name: "Firebase (Firestore/RTDB + Auth)", desc: "Solid backend, no bundled AI",          emoji: "🗄️" },
-    { name: "Google AI Studio",                desc: "Lighter prototyping vs Gemini 2.5 Pro", emoji: "🎨" },
-    { name: "Google Colab",                    desc: "Free GPU/TPU compute for ML",           emoji: "⚡" },
-    { name: "Android Studio + Jetpack Compose",desc: "Mobile-only, but strong",               emoji: "📱" },
-    { name: "Apps Script + Workspace APIs",    desc: "Automation glue",                       emoji: "⚙️" },
-    { name: "Nano Banana (Imagen)",            desc: "Image generation",                      emoji: "🍌" },
-  ],
-  B: [
-    { name: "Maps Platform API",             desc: "Location & mapping services",  emoji: "🗺️" },
-    { name: "Cloud Vision / Speech-to-Text", desc: "Vision & speech AI APIs",     emoji: "👁️" },
-    { name: "Looker Studio / Sheets API",    desc: "Data visualization & sheets", emoji: "📊" },
-    { name: "Translate API",                 desc: "Multi-language translation",  emoji: "🌐" },
-    { name: "Forms API + Fonts/Material",    desc: "Forms & design assets",       emoji: "📝" },
-    { name: "NotebookLM",                    desc: "AI-powered notebook",         emoji: "📓" },
-    { name: "Google Stitch",                 desc: "UI/design generation",        emoji: "🪡" },
-    { name: "Google Flow",                   desc: "Video generation",            emoji: "🎬" },
-  ],
-};
-
 const RULES = [
-  { num: 1,  title: "Starting Budget",    body: "Every team gets 120 DevCoins to spend across all tiers." },
-  { num: 2,  title: "Tier Caps",          body: "Max 1 S-tier tool per team · Max 2 A-tier tools per team · Unlimited B-tier." },
-  { num: 3,  title: "Auction Order",      body: "S-tier → A-tier → B-tier. Problem statement revealed only after all bidding closes — bid blind." },
-  { num: 4,  title: "Live Bidding",       body: "Each tool has a 15-second countdown. Any new bid resets the timer by 5s." },
-  { num: 5,  title: "Leaderboard Pricing",body: "Top 4 teams win an S-tier tool (all pay the 4th-highest bid). Top 6 teams win an A-tier tool (all pay the 6th-highest bid)." },
-  { num: 6,  title: "B-Tier Buy",         body: "Fixed price, no bidding — click BUY at any time to grab a B-tier tool at base price (12 DC). Unlimited copies." },
-  { num: 7,  title: "Mandatory Use",      body: "Every tool your team wins must be used in your final pitch." },
-  { num: 8,  title: "No Overspending",    body: "Your bid cannot exceed your remaining DevCoins. Purse is only deducted when the lot closes." },
-  { num: 9,  title: "Scoring",            body: "Innovation · Tool Utilization · Integration · Feasibility & Pitch — 10 pts each." },
-  { num: 10, title: "Underdog Bonus",     body: "Teams with only A/B-tier tools (no S-tier) get a +10–15% score bonus." },
+  {
+    num: 1,
+    title: "Starting Budget",
+    body: "Every team receives 120 DevCoins to spend in the market. You cannot earn more — spend wisely.",
+  },
+  {
+    num: 2,
+    title: "Shop Freely",
+    body: "Browse and buy any tool instantly — no tiers, no caps, no waiting. First come, first served.",
+  },
+  {
+    num: 3,
+    title: "Shared Catalogue",
+    body: "Multiple teams can own the same tool. Buying a tool never blocks another team from buying it too.",
+  },
+  {
+    num: 4,
+    title: "No Overspending",
+    body: "You can only buy tools your balance can cover. DevCoins are deducted the moment you confirm a purchase.",
+  },
+  {
+    num: 5,
+    title: "Mandatory Use",
+    body: "Every tool your team purchases must be meaningfully used and demonstrated in your final pitch.",
+  },
+  {
+    num: 6,
+    title: "Scoring",
+    body: "Innovation · Tool Utilization · Integration · Feasibility & Pitch — 10 points each, 40 total.",
+  },
 ];
 
-const TIER_META = {
-  S: { label: "S-TIER", coins: 60, copies: 4,   cap: "Top 4 win · Max 1/team",
-    gradFrom: "#f59e0b", gradTo: "#fbbf24", border: "rgba(251,191,36,0.35)", glow: "rgba(251,191,36,0.15)",
-    badgeBg: "rgba(251,191,36,0.1)", badgeText: "#fde68a", badgeBorder: "rgba(251,191,36,0.3)", dot: "#fbbf24" },
-  A: { label: "A-TIER", coins: 30, copies: 6,   cap: "Top 6 win · Max 2/team",
-    gradFrom: "#7c3bed", gradTo: "#a855f7", border: "rgba(124,59,237,0.45)", glow: "rgba(124,59,237,0.2)",
-    badgeBg: "rgba(124,59,237,0.1)", badgeText: "#c4b5fd", badgeBorder: "rgba(124,59,237,0.4)", dot: "#a855f7" },
-  B: { label: "B-TIER", coins: 12, copies: "∞", cap: "Buy anytime · No cap",
-    gradFrom: "#00e5ff", gradTo: "#22d3ee", border: "rgba(0,229,255,0.25)", glow: "rgba(0,229,255,0.12)",
-    badgeBg: "rgba(0,229,255,0.08)", badgeText: "#67e8f9", badgeBorder: "rgba(0,229,255,0.25)", dot: "#00e5ff" },
-};
+/* ─────────────────────────────────────────────────────────
+   Tool accent colours (cycles through brand palette)
+   Premium tools → amber family; Standard → cool palette
+───────────────────────────────────────────────────────── */
+const PREMIUM_ACCENT = { bg: "rgba(249,171,0,0.1)", border: "rgba(249,171,0,0.35)", text: "#ffd427" };
+const STANDARD_ACCENTS = [
+  { bg: "rgba(66,133,244,0.12)",  border: "rgba(66,133,244,0.3)",  text: "#57caff"  },
+  { bg: "rgba(52,168,83,0.12)",   border: "rgba(52,168,83,0.3)",   text: "#5cdb6d"  },
+  { bg: "rgba(0,229,255,0.1)",    border: "rgba(0,229,255,0.25)",  text: "#67e8f9"  },
+  { bg: "rgba(168,85,247,0.12)",  border: "rgba(168,85,247,0.3)",  text: "#c4b5fd"  },
+];
 
+/* ─────────────────────────────────────────────────────────
+   Main component
+───────────────────────────────────────────────────────── */
 export default function LandingPage() {
-  const [activeTab, setActiveTab] = useState<"S" | "A" | "B">("S");
+  // Detect existing session so the CTA can skip registration
+  const [hasSession, setHasSession] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("arsenal_session");
+      if (raw) {
+        const s = JSON.parse(raw);
+        if (s?.teamId) setHasSession(true);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const ctaHref  = hasSession ? "/market"   : "/register";
+  const ctaLabel = hasSession ? "$ enter_market →" : "$ join_team --market";
 
   return (
     <div className="page-root">
 
       {/* ══════════════════════════════════════════
-          HERO — full-viewport, bouncing shapes bg
+          HERO
       ══════════════════════════════════════════ */}
       <section className="hero-section">
-        {/* Physics bouncing layer */}
         <BounceCanvas />
 
-        {/* 4-color ambient brand blobs */}
+        {/* Brand blobs */}
         <div aria-hidden="true" className="hero-blobs">
           <div className="blob blob-blue" />
           <div className="blob blob-green" />
@@ -98,35 +108,25 @@ export default function LandingPage() {
           <div className="blob blob-red" />
         </div>
 
-        {/* Radial vignette */}
         <div aria-hidden="true" className="hero-vignette" />
 
         {/* Hero content */}
         <div className="hero-content">
-          {/* GDG RVCE logo */}
           <img src="/gdg-1.svg" alt="GDG RVCE" className="hero-logo" />
 
-          {/* Headline */}
           <h1 className="hero-headline">
             THE GOOGLE{" "}
             <span className="headline-gradient">AI ARSENAL</span>
           </h1>
 
-          {/* Tagline */}
-          <p className="hero-tagline">Bid Smart. Build Better.</p>
+          <p className="hero-tagline">Pick Smart. Build Better.</p>
 
-          {/* Primary CTA */}
+          {/* Single smart CTA — routes to /register or /market */}
           <div className="hero-cta-wrap">
-            <Link href="/register" className="cta-primary">
-              $ join_team --auction
+            <Link href={ctaHref} className="cta-primary">
+              {ctaLabel}
               <span aria-hidden="true" className="cta-underline" />
             </Link>
-          </div>
-
-          {/* Secondary pills */}
-          <div className="hero-pills">
-            <Link href="/bid"       className="hero-pill pill-blue">Enter Bid Room</Link>
-            <Link href="/dashboard" className="hero-pill pill-green">Dashboard</Link>
           </div>
         </div>
 
@@ -147,91 +147,67 @@ export default function LandingPage() {
           STICKY NAV
       ══════════════════════════════════════════ */}
       <nav className="site-nav">
-        {/* Left: logos */}
         <div className="nav-logo">
           <img src="/gdg-2.svg" alt="GDG" className="nav-gdg-icon" />
           <div className="nav-divider" />
           <img src="/gdg-1.svg" alt="GDG RVCE" className="nav-rvce-logo" />
         </div>
-        {/* Right: links */}
         <div className="nav-links">
-          <Link href="/register" className="nav-link">Register</Link>
-          <Link href="/bid"      className="nav-link nav-bid">Bid Room</Link>
-          <Link href="/dashboard" className="nav-link nav-dashboard">Dashboard →</Link>
+          <Link href={ctaHref} className="nav-link nav-market">Market →</Link>
         </div>
       </nav>
 
       {/* ══════════════════════════════════════════
-          TOOLS SECTION
+          TOOLS SECTION — flat list, no tiers
       ══════════════════════════════════════════ */}
       <section className="section-pad">
         <div className="section-inner wide">
           <div className="section-header">
             <p className="section-eyebrow" style={{ color: C.hBlue }}>The Arsenal</p>
-            <h2 className="section-title">Tools Up for Auction</h2>
+            <h2 className="section-title">Tools in the Market</h2>
+            <p className="section-sub">8 Google AI tools available to every team. Browse, pick, and build.</p>
           </div>
 
-          {/* Tier tabs */}
-          <div className="tier-tabs">
-            {(["S", "A", "B"] as const).map(tier => {
-              const m = TIER_META[tier];
-              const active = activeTab === tier;
-              return (
-                <button key={tier} onClick={() => setActiveTab(tier)}
-                  style={{
-                    fontFamily: "'Space Grotesk', sans-serif",
-                    fontWeight: 700,
-                    padding: "10px 24px",
-                    borderRadius: 999,
-                    fontSize: 13,
-                    cursor: "pointer",
-                    transition: "all 0.2s",
-                    border: `1px solid ${active ? "transparent" : m.border}`,
-                    background: active ? `linear-gradient(135deg,${m.gradFrom},${m.gradTo})` : "transparent",
-                    color: active ? "#000" : "rgba(240,240,240,0.5)",
-                    boxShadow: active ? `0 4px 20px ${m.glow}` : "none",
-                  }}>
-                  {m.label}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Tier meta banner */}
-          {(["S", "A", "B"] as const).map(tier => {
-            if (activeTab !== tier) return null;
-            const m = TIER_META[tier];
-            return (
-              <div key={tier} className="tier-banner" style={{ border: `1px solid ${m.border}` }}>
-                {[{ label: "Price", val: `${m.coins} DevCoins` }, { label: "Copies", val: String(m.copies) }, { label: "Team limit", val: m.cap }].map(item => (
-                  <div key={item.label} className="tier-meta-item">
-                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: m.dot, flexShrink: 0 }} />
-                    <span className="tier-meta-label">{item.label}:</span>
-                    <span className="tier-meta-val">{item.val}</span>
-                  </div>
-                ))}
-              </div>
-            );
-          })}
-
-          {/* Tool cards */}
           <div className="tools-grid">
-            {TOOLS[activeTab].map(tool => {
-              const m = TIER_META[activeTab];
+            {MARKETPLACE_TOOLS.map((tool, i) => {
+              const isPremium = tool.tier === "premium";
+              const stdIdx = MARKETPLACE_TOOLS.filter(t => t.tier === "standard").findIndex(t => t.id === tool.id);
+              const accent = isPremium ? PREMIUM_ACCENT : STANDARD_ACCENTS[stdIdx % STANDARD_ACCENTS.length];
+              const letter = tool.name.charAt(0).toUpperCase();
               return (
-                <div key={tool.name} className="tool-card"
-                  style={{ border: `1px solid ${m.border}` }}
-                  onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.045)"; e.currentTarget.style.boxShadow = `0 8px 32px ${m.glow}`; e.currentTarget.style.transform = "translateY(-2px)"; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.018)"; e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.transform = "translateY(0)"; }}>
-                  <div className="tool-card-top">
-                    <span style={{ fontSize: 22 }}>{tool.emoji}</span>
-                    <span className="tier-badge" style={{ background: m.badgeBg, color: m.badgeText, border: `1px solid ${m.badgeBorder}` }}>{m.label}</span>
+                <div
+                  key={tool.id}
+                  className="tool-card"
+                  style={{ border: `1px solid ${accent.border}` }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.background = accent.bg;
+                    e.currentTarget.style.transform = "translateY(-3px)";
+                    e.currentTarget.style.boxShadow = `0 8px 28px ${accent.border}`;
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.background = "rgba(255,255,255,0.018)";
+                    e.currentTarget.style.transform = "translateY(0)";
+                    e.currentTarget.style.boxShadow = "none";
+                  }}
+                >
+                  {/* Avatar */}
+                  <div className="tool-avatar" style={{ background: accent.bg, border: `1.5px solid ${accent.border}`, color: accent.text }}>
+                    {tool.logoUrl ? (
+                      <img src={tool.logoUrl} alt={tool.name} style={{ width: 28, height: 28, objectFit: "contain" }} onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; (e.currentTarget.nextSibling as HTMLElement).style.display = "block"; }} />
+                    ) : null}
+                    <span className="tool-avatar-letter" style={{ display: tool.logoUrl ? "none" : "block", color: accent.text }}>{letter}</span>
                   </div>
-                  <h3 className="tool-name">{tool.name}</h3>
-                  <p className="tool-desc">{tool.desc}</p>
-                  <div className="tool-footer">
-                    <span className="tool-price-label">base price</span>
-                    <span className="tool-price" style={{ background: `linear-gradient(135deg,${m.gradFrom},${m.gradTo})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{TIER_META[activeTab].coins} DC</span>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <h3 className="tool-name">{tool.name}</h3>
+                    {isPremium && (
+                      <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", padding: "2px 7px", borderRadius: 999, background: "rgba(249,171,0,0.1)", border: "1px solid rgba(249,171,0,0.3)", color: "#ffd427", flexShrink: 0 }}>PREMIUM</span>
+                    )}
+                  </div>
+
+                  {/* Price pill */}
+                  <div className="tool-price-pill" style={{ background: accent.bg, border: `1px solid ${accent.border}`, color: accent.text }}>
+                    {tool.price} DC
                   </div>
                 </div>
               );
@@ -247,13 +223,16 @@ export default function LandingPage() {
         <div className="section-inner mid">
           <div className="section-header">
             <p className="section-eyebrow" style={{ color: C.hYellow }}>How It Works</p>
-            <h2 className="section-title">Rules of the Game</h2>
+            <h2 className="section-title">Rules of the Market</h2>
           </div>
           <div className="rules-grid">
             {RULES.map(rule => (
-              <div key={rule.num} className="rule-card"
+              <div
+                key={rule.num}
+                className="rule-card"
                 onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; e.currentTarget.style.borderColor = `${C.hYellow}33`; }}
-                onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.02)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)"; }}>
+                onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.02)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)"; }}
+              >
                 <div className="rule-num" style={{ background: `${C.yellow}18`, border: `1px solid ${C.yellow}44`, color: C.hYellow }}>{rule.num}</div>
                 <div>
                   <h3 className="rule-title">{rule.title}</h3>
@@ -288,10 +267,6 @@ export default function LandingPage() {
                   </div>
                 ))}
               </div>
-              <div className="underdog-badge" style={{ border: `1px solid ${C.hRed}44`, background: `${C.red}0d` }}>
-                <span style={{ fontSize: 18 }}>🏆</span>
-                <span className="underdog-text" style={{ color: C.hRed }}>Underdog Bonus: +10–15% for A/B-tier-only teams</span>
-              </div>
             </div>
           </div>
         </div>
@@ -309,19 +284,17 @@ export default function LandingPage() {
             </span>
           </h2>
           <p className="cta-sub">
-            Register your team, enter the bid room when the auction goes live, and show the world what you can build.
+            Register your team, pick your tools from the market, and show the world what you can build.
           </p>
           <div className="cta-buttons">
-            <Link href="/register" className="cta-btn-primary"
+            <Link
+              href={ctaHref}
+              className="cta-btn-primary"
               style={{ background: `linear-gradient(90deg, ${C.blue}, ${C.green})`, boxShadow: `0 8px 28px ${C.blue}40` }}
               onMouseEnter={e => { e.currentTarget.style.transform = "scale(1.04)"; }}
-              onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; }}>
-              $ join_team --now
-            </Link>
-            <Link href="/dashboard/login" className="cta-btn-ghost"
-              onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.22)"; e.currentTarget.style.color = C.offWhite; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)"; e.currentTarget.style.color = "rgba(240,240,240,0.5)"; }}>
-              operator login →
+              onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; }}
+            >
+              {ctaLabel}
             </Link>
           </div>
         </div>
@@ -337,7 +310,11 @@ export default function LandingPage() {
           <img src="/gdg-1.svg" alt="GDG RVCE" style={{ height: 18, width: "auto", maxWidth: 110, opacity: 0.4 }} />
         </div>
         <div className="footer-links">
-          {[{ href: "/register", label: "Register" }, { href: "/bid", label: "Bid Room" }, { href: "/dashboard", label: "Dashboard" }, { href: "/dashboard/login", label: "Operator" }].map(l => (
+          {[
+            { href: "/register", label: "Register" },
+            { href: "/market",   label: "Market"   },
+            { href: "/dashboard",label: "Dashboard" },
+          ].map(l => (
             <Link key={l.href} href={l.href} className="footer-link"
               onMouseEnter={e => { e.currentTarget.style.color = C.hBlue; }}
               onMouseLeave={e => { e.currentTarget.style.color = "rgba(240,240,240,0.22)"; }}>
@@ -348,7 +325,7 @@ export default function LandingPage() {
       </footer>
 
       {/* ══════════════════════════════════════════
-          RESPONSIVE STYLES
+          STYLES
       ══════════════════════════════════════════ */}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,700&display=swap');
@@ -446,21 +423,6 @@ export default function LandingPage() {
           border-radius: 0 0 6px 6px;
         }
 
-        .hero-pills { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
-        .hero-pill {
-          font-family: 'JetBrains Mono', monospace;
-          font-size: 12px;
-          text-decoration: none;
-          padding: 8px 16px;
-          border-radius: 999px;
-          transition: all 0.2s;
-          letter-spacing: 0.04em;
-        }
-        .pill-blue  { color: #57caff; border: 1px solid rgba(87,202,255,0.35); background: rgba(87,202,255,0.08); }
-        .pill-blue:hover  { background: rgba(87,202,255,0.16); }
-        .pill-green { color: #5cdb6d; border: 1px solid rgba(92,219,109,0.35); background: rgba(92,219,109,0.08); }
-        .pill-green:hover { background: rgba(92,219,109,0.16); }
-
         .scroll-cue {
           position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%);
           z-index: 10; display: flex; flex-direction: column; align-items: center;
@@ -496,20 +458,17 @@ export default function LandingPage() {
           transition: color 0.2s;
         }
         .nav-link:hover { color: #57caff; }
-        .nav-bid {
-          border: 1px solid rgba(87,202,255,0.4);
-          color: #57caff !important;
-        }
-        .nav-bid:hover { background: rgba(87,202,255,0.1); }
-        .nav-dashboard {
+        .nav-market {
           font-family: 'Space Grotesk', sans-serif !important;
           font-weight: 700; font-size: 13px !important;
           padding: 7px 16px !important;
-          background: #4285f4; color: #fff !important;
+          background: linear-gradient(135deg, #4285f4, #34a853);
+          color: #fff !important;
           border-radius: 6px;
           box-shadow: 0 0 16px rgba(66,133,244,0.4);
+          transition: opacity 0.2s, transform 0.2s;
         }
-        .nav-dashboard:hover { opacity: 0.9; transform: scale(1.03); }
+        .nav-market:hover { opacity: 0.9; transform: scale(1.03); }
 
         /* ── SECTIONS ── */
         .section-pad { padding: 64px 20px; }
@@ -528,52 +487,50 @@ export default function LandingPage() {
           font-family: 'Space Grotesk', sans-serif;
           font-weight: 700; font-size: clamp(1.6rem, 3vw, 2.4rem); color: #f0f0f0;
         }
-
-        /* ── TIER TABS ── */
-        .tier-tabs { display: flex; justify-content: center; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
-
-        .tier-banner {
-          display: flex; flex-wrap: wrap; justify-content: center;
-          gap: 20px; padding: 12px 20px; border-radius: 12px;
-          background: rgba(255,255,255,0.02); margin-bottom: 20px;
+        .section-sub {
+          font-family: 'JetBrains Mono', monospace;
+          font-size: 12px; color: rgba(240,240,240,0.38);
+          margin-top: 10px; line-height: 1.6;
         }
-        .tier-meta-item { display: flex; align-items: center; gap: 8px; }
-        .tier-meta-label { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: rgba(240,240,240,0.4); }
-        .tier-meta-val   { font-family: 'Space Grotesk', sans-serif; font-size: 13px; font-weight: 700; }
 
-        /* ── TOOL CARDS ── */
+        /* ── TOOL CARDS (flat grid) ── */
         .tools-grid {
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
           gap: 12px;
         }
         .tool-card {
-          padding: 18px; border-radius: 16px;
+          padding: 20px 18px;
+          border-radius: 16px;
           background: rgba(255,255,255,0.018);
-          transition: all 0.22s; cursor: default;
+          transition: all 0.22s;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 12px;
         }
-        .tool-card-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
-        .tier-badge {
-          font-family: 'JetBrains Mono', monospace;
-          font-size: 9px; font-weight: 700; letter-spacing: 0.1em;
-          padding: 3px 8px; border-radius: 999px;
+        .tool-avatar {
+          width: 44px; height: 44px;
+          border-radius: 12px;
+          display: flex; align-items: center; justify-content: center;
+          flex-shrink: 0;
+        }
+        .tool-avatar-letter {
+          font-family: 'Space Grotesk', sans-serif;
+          font-size: 18px; font-weight: 700;
         }
         .tool-name {
           font-family: 'Space Grotesk', sans-serif;
-          font-weight: 600; font-size: 13px; margin-bottom: 5px;
+          font-weight: 600; font-size: 14px;
           line-height: 1.35; color: #f0f0f0;
+          flex: 1;
         }
-        .tool-desc {
+        .tool-price-pill {
           font-family: 'JetBrains Mono', monospace;
-          font-size: 11px; color: rgba(240,240,240,0.38);
-          line-height: 1.55; margin-bottom: 14px;
+          font-size: 10px; font-weight: 500;
+          padding: 3px 10px; border-radius: 999px;
+          letter-spacing: 0.06em;
         }
-        .tool-footer {
-          padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.06);
-          display: flex; justify-content: space-between; align-items: center;
-        }
-        .tool-price-label { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: rgba(240,240,240,0.28); }
-        .tool-price { font-family: 'Space Grotesk', sans-serif; font-size: 13px; font-weight: 700; }
 
         /* ── RULES ── */
         .rules-grid {
@@ -613,7 +570,7 @@ export default function LandingPage() {
         }
         .scoring-grid {
           display: grid; grid-template-columns: repeat(4, 1fr);
-          gap: 10px; margin-bottom: 24px;
+          gap: 10px;
         }
         .score-cell {
           padding: 14px 6px; border-radius: 12px;
@@ -628,11 +585,6 @@ export default function LandingPage() {
           font-family: 'JetBrains Mono', monospace;
           font-size: 10px; color: rgba(240,240,240,0.4); line-height: 1.45;
         }
-        .underdog-badge {
-          display: inline-flex; align-items: center; gap: 10px;
-          padding: 10px 20px; border-radius: 999px;
-        }
-        .underdog-text { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
 
         /* ── BOTTOM CTA ── */
         .bottom-cta-section { padding-bottom: 80px; }
@@ -653,13 +605,6 @@ export default function LandingPage() {
           color: #fff; font-weight: 700; text-decoration: none;
           transition: all 0.2s; display: inline-block;
         }
-        .cta-btn-ghost {
-          font-family: 'JetBrains Mono', monospace;
-          font-size: 13px; padding: 14px 24px; border-radius: 6px;
-          border: 1px solid rgba(255,255,255,0.12);
-          color: rgba(240,240,240,0.5); text-decoration: none;
-          transition: all 0.2s; display: inline-block;
-        }
 
         /* ── FOOTER ── */
         .site-footer {
@@ -677,67 +622,49 @@ export default function LandingPage() {
         }
 
         /* ════════════════════════════
-           MOBILE BREAKPOINT ≤ 640px
+           MOBILE ≤ 640px
         ════════════════════════════ */
         @media (max-width: 640px) {
-          /* Hero */
           .hero-logo  { height: 26px; max-width: 180px; }
           .hero-content { padding: 0 16px; gap: 14px; }
           .hero-cta-wrap { max-width: 100%; }
           .cta-primary { font-size: 13px; padding: 12px 18px; }
-          .hero-pills { gap: 8px; }
-          .hero-pill  { font-size: 11px; padding: 7px 12px; }
           .scroll-cue { display: none; }
           .blob-blue  { width: 220px; height: 220px; }
           .blob-green { width: 180px; height: 180px; }
           .blob-yellow{ width: 170px; height: 170px; }
           .blob-red   { width: 160px; height: 160px; }
 
-          /* Nav: compact, RVCE logo hidden */
           .site-nav   { padding: 10px 14px; gap: 8px; }
           .nav-logo   { gap: 8px; }
           .nav-gdg-icon  { height: 26px; }
           .nav-rvce-logo { display: none; }
           .nav-divider   { display: none; }
-          /* Nav links: shrink to icon-only on tiny screens */
           .nav-links  { gap: 4px; flex-shrink: 0; }
           .nav-link   { font-size: 11px; padding: 6px 8px; }
-          .nav-dashboard { font-size: 11px !important; padding: 6px 10px !important; }
+          .nav-market { font-size: 11px !important; padding: 6px 10px !important; }
 
-          /* Sections */
           .section-pad   { padding: 44px 14px; }
           .section-title { font-size: 1.45rem; }
           .section-header { margin-bottom: 28px; }
 
-          /* Tier tabs */
-          .tier-tabs  { gap: 6px; }
-          .tier-banner{ gap: 10px; padding: 10px 12px; }
-
-          /* Tool cards: 2-col on mobile */
           .tools-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
-          .tool-card  { padding: 12px; border-radius: 12px; }
-          .tool-name  { font-size: 11px; }
-          .tool-desc  { font-size: 10px; margin-bottom: 10px; }
-          .tool-footer{ padding-top: 8px; }
+          .tool-card  { padding: 14px 12px; border-radius: 12px; gap: 10px; }
+          .tool-avatar { width: 36px; height: 36px; }
+          .tool-name  { font-size: 12px; }
 
-          /* Rules: 1-col */
           .rules-grid { grid-template-columns: 1fr; }
           .rule-card  { padding: 14px 14px; }
 
-          /* Scoring: 2×2 */
           .scoring-card  { padding: 24px 14px; }
           .scoring-title { font-size: 1.2rem; }
           .scoring-grid  { grid-template-columns: repeat(2, 1fr); }
-          .underdog-badge{ flex-direction: column; gap: 6px; text-align: center; padding: 10px 14px; }
-          .underdog-text { font-size: 10px; }
 
-          /* Bottom CTA */
           .cta-heading { font-size: 1.5rem; }
           .cta-sub     { font-size: 12px; }
-          .cta-btn-primary, .cta-btn-ghost { font-size: 13px; padding: 12px 20px; }
+          .cta-btn-primary { font-size: 13px; padding: 12px 20px; }
           .cta-buttons { flex-direction: column; align-items: center; }
 
-          /* Footer: stack */
           .site-footer   { flex-direction: column; align-items: flex-start; padding: 18px 14px; }
           .footer-links  { gap: 14px; flex-wrap: wrap; }
         }
@@ -747,7 +674,7 @@ export default function LandingPage() {
         ════════════════════════════ */
         @media (max-width: 768px) and (min-width: 641px) {
           .nav-rvce-logo  { max-width: 110px; }
-          .tools-grid     { grid-template-columns: repeat(2, 1fr); }
+          .tools-grid     { grid-template-columns: repeat(3, 1fr); }
           .rules-grid     { grid-template-columns: 1fr; }
           .scoring-grid   { grid-template-columns: repeat(2, 1fr); }
           .section-pad    { padding: 56px 24px; }

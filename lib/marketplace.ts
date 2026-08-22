@@ -20,18 +20,17 @@ export const MARKETPLACE_TOOLS: MarketplaceTool[] = [
     name: "Gemini (app/api)",
     price: 60,
     tier: "premium",
-    logoUrl:
-      "https://www.gstatic.com/lamda/images/gemini_sparkle_v002_d4735304ff6292a690345.svg",
+    logoUrl: "/logos/gemini-api.svg",
   },
-  { id: "google-ai-studio",   name: "Google AI Studio",   price: 60, tier: "premium", logoUrl: null },
-  { id: "google-antigravity", name: "Google Antigravity", price: 60, tier: "premium", logoUrl: null },
-  { id: "android-studio",     name: "Android Studio",     price: 60, tier: "premium", logoUrl: null },
+  { id: "google-ai-studio",   name: "Google AI Studio",   price: 60, tier: "premium", logoUrl: "/logos/aistudio.svg" },
+  { id: "google-antigravity", name: "Google Antigravity", price: 60, tier: "premium", logoUrl: "/logos/antigravity-color.svg" },
+  { id: "android-studio",     name: "Android Studio",     price: 60, tier: "premium", logoUrl: "/logos/android-studio.svg" },
 
   // ── Standard tier — 30 DC · unlimited (balance-gated only) ──────────────
-  { id: "stitch",            name: "Stitch",            price: 30, tier: "standard", logoUrl: null },
-  { id: "notebooklm",        name: "NotebookLM",        price: 30, tier: "standard", logoUrl: null },
-  { id: "teachable-machine", name: "Teachable Machine", price: 30, tier: "standard", logoUrl: null },
-  { id: "firebase",          name: "Firebase",          price: 30, tier: "standard", logoUrl: null },
+  { id: "stitch",            name: "Stitch",            price: 30, tier: "standard", logoUrl: "/logos/stitch.png" },
+  { id: "notebooklm",        name: "NotebookLM",        price: 30, tier: "standard", logoUrl: "/logos/notebooklm.svg" },
+  { id: "teachable-machine", name: "Teachable Machine", price: 30, tier: "standard", logoUrl: "/logos/teachable-machine.svg" },
+  { id: "firebase",          name: "Firebase",          price: 30, tier: "standard", logoUrl: "/logos/firebase.svg" },
 ];
 
 /** Starting DevCoin balance for every team. */

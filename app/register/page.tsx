@@ -64,10 +64,16 @@ export default function RegisterPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: teamName.trim(), members: validMembers }),
       });
-      const data = await res.json();
+
+      let data: any;
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error(`Server error (${res.status}) — please try again or contact an admin`);
+      }
 
       if (!res.ok) {
-        throw new Error(data.error || "Failed to register team");
+        throw new Error(data?.error || "Failed to register team");
       }
 
       // Save session so /bid skips the code-entry screen entirely

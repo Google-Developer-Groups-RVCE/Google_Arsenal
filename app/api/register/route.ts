@@ -7,11 +7,6 @@ function generateCode(): string {
 
 export async function POST(req: Request) {
   try {
-    if (!adminDb) {
-      console.error("Registration failed: Firebase Admin DB is not initialized. Check environment variables on Vercel.");
-      return NextResponse.json({ error: "Server configuration error — Firebase not initialized" }, { status: 503 });
-    }
-
     const body = await req.json();
     const { name, members } = body;
 

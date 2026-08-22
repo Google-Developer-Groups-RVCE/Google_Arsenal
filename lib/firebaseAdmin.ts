@@ -13,11 +13,19 @@ let adminAuth!: Auth;
 
 try {
   if (getApps().length === 0) {
+    const privateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY
+      ? process.env.FIREBASE_ADMIN_PRIVATE_KEY.replace(/\\n/g, "\n").replace(/^"|"$/g, '')
+      : undefined;
+
+    if (!privateKey || !process.env.FIREBASE_ADMIN_CLIENT_EMAIL || !process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID) {
+      throw new Error("Missing required Firebase Admin environment variables");
+    }
+
     initializeApp({
       credential: cert({
         projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
         clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
-        privateKey: process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+        privateKey: privateKey,
       }),
       databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL,
     });

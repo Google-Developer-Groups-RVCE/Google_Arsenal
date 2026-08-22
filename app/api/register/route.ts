@@ -23,6 +23,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "At least one valid member name is required" }, { status: 400 });
     }
 
+    if (!adminDb) {
+      console.error("Firebase admin database is not initialized. Check environment variables.");
+      return NextResponse.json(
+        { error: "Server misconfiguration: Firebase admin database is not initialized. Please ensure environment variables like FIREBASE_ADMIN_PRIVATE_KEY are correctly set in Vercel." },
+        { status: 500 }
+      );
+    }
+
     const teamsRef = adminDb.ref("teams");
     
     let code = "";

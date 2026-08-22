@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { MARKETPLACE_TOOLS } from "@/lib/marketplace";
+import TextType from "./components/TextType";
 
 const BounceCanvas = dynamic(() => import("./components/BounceCanvas"), { ssr: false });
 
@@ -116,7 +117,14 @@ export default function LandingPage() {
 
           <h1 className="hero-headline">
             THE GOOGLE{" "}
-            <span className="headline-gradient">AI ARSENAL</span>
+            <TextType
+              text="AI ARSENAL"
+              as="span"
+              cursorCharacter="|"
+              className="headline-gradient"
+              typingSpeed={100}
+              deletingSpeed={50}
+            />
           </h1>
 
           <p className="hero-tagline">Pick Smart. Build Better.</p>
@@ -377,7 +385,7 @@ export default function LandingPage() {
           padding: 0 20px; width: 100%; max-width: 780px;
         }
 
-        .hero-logo { height: 36px; width: auto; object-fit: contain; max-width: 240px; }
+        .hero-logo { height: 90px; width: auto; object-fit: contain; max-width: 240px; }
 
         .hero-headline {
           font-family: 'Space Grotesk', sans-serif;
@@ -625,7 +633,7 @@ export default function LandingPage() {
            MOBILE ≤ 640px
         ════════════════════════════ */
         @media (max-width: 640px) {
-          .hero-logo  { height: 26px; max-width: 180px; }
+          .hero-logo  { height: 80px; max-width: 180px; }
           .hero-content { padding: 0 16px; gap: 14px; }
           .hero-cta-wrap { max-width: 100%; }
           .cta-primary { font-size: 13px; padding: 12px 18px; }

@@ -1,6 +1,5 @@
 import { initializeApp, getApps, cert } from "firebase-admin/app";
 import { getDatabase, Database } from "firebase-admin/database";
-import { getAuth, Auth } from "firebase-admin/auth";
 
 // Use definite-assignment (!) so the build never fails.
 // The whole block is in try-catch so the module always loads even if env vars are
@@ -8,8 +7,6 @@ import { getAuth, Auth } from "firebase-admin/auth";
 // of crashing the module and returning a non-JSON 500 HTML page.
 // eslint-disable-next-line prefer-const
 let adminDb!: Database;
-// eslint-disable-next-line prefer-const
-let adminAuth!: Auth;
 
 try {
   if (getApps().length === 0) {
@@ -31,9 +28,8 @@ try {
     });
   }
   adminDb = getDatabase();
-  adminAuth = getAuth();
 } catch (error: any) {
   console.error("🔥 Firebase Admin init failed:", error.message);
 }
 
-export { adminDb, adminAuth };
+export { adminDb };

@@ -103,9 +103,9 @@ export default function BounceCanvas() {
     // On mobile: fewer shapes, no doodle layer, smaller sizes, slower
     const pillScale  = isMobile ? 0.55 : 1;
     const pillSpeed  = isMobile ? 0.65 : 1;
-    // pick only first 3 pills on mobile to keep it uncluttered
-    const pillList   = isMobile ? LOGO_PILLS.slice(0, 3) : LOGO_PILLS;
-    const doodleList = isMobile ? [] : DOODLES;
+    // Increased quantity for mobile, but excluding gdg-2 and gdg-3 per request
+    const pillList   = isMobile ? LOGO_PILLS.filter(p => p.src !== "/gdg-2.svg" && p.src !== "/gdg-3.svg") : LOGO_PILLS; 
+    const doodleList = isMobile ? DOODLES.slice(0, 5) : DOODLES;
 
     // Doodle layer first (background, lower z)
     for (const d of doodleList) {
